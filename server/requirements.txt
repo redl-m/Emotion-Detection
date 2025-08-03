@@ -1,0 +1,8 @@
+flask
+flask-socketio
+eventlet
+torch
+torchvision
+opencv-python
+pandas
+Pillow

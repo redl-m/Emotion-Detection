@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotion Classification AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Emotion Classification AI</h1>
+            <div class="controls-top">
+                <label for="videoUpload" class="button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    Upload Video
+                    <input type="file" id="videoUpload" accept="video/*" hidden>
+                </label>
+                <button id="liveBtn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3" fill="red"></circle></svg>
+                    Live Feed
+                </button>
+            </div>
+        </header>
+
+        <main>
+            <div class="video-section">
+                <div id="video-wrapper">
+                    <canvas id="overlayCanvas"></canvas>
+                    <div id="placeholder" class="placeholder-active">
+                        <div id="placeholder-content">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                            <p>Click here to upload a video or start a live feed</p>
+                        </div>
+                        <div id="loader" class="hidden">
+                             <div class="spinner"></div>
+                             <p>Processing video...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="controls-bottom">
+                     <button id="trackBtn" class="track-button" disabled>
+                        <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.657 6.343A8 8 0 1 0 12 20a8 8 0 0 0 5.657-2.343l-2.121-2.121"></path><path d="M12 12h.01"></path></svg>
+                        <span id="trackBtnText">Start Tracking</span>
+                    </button>
+                    </div>
+            </div>
+
+            <aside id="analysis-section" class="charts-section">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h2>Emotion Likelihood</h2>
+                        <div id="participant-selector-bar"></div>
+                    </div>
+                    <div id="prob-bar-chart"></div>
+                </div>
+                <div class="chart-container">
+                     <div class="chart-header">
+                        <h2>Emotion Over Time</h2>
+                        <div id="participant-selector-ts"></div>
+                    </div>
+                    <div id="chart"></div>
+                </div>
+                <div class="chart-container" id="legend-container">
+                    <h2>Legend</h2>
+                    <div id="legend"></div>
+                </div>
+                <div id="summary-container" class="chart-container hidden">
+                    <h2>Session Summary</h2>
+                    <div id="summary-report"></div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
