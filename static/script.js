@@ -133,7 +133,6 @@ document.addEventListener('DOMContentLoaded', () => {
         state.videoSource = videoElement;
         dom.videoWrapper.prepend(videoElement);
 
-        // Immediately update the UI for a more responsive feel, especially for live feeds.
         dom.placeholder.classList.replace('placeholder-active', 'placeholder-hidden');
         dom.trackBtn.disabled = false;
         showLoader(false);
@@ -143,16 +142,12 @@ document.addEventListener('DOMContentLoaded', () => {
             dom.overlayCanvas.height = videoElement.videoHeight;
         };
 
-        // Use the appropriate event for each video type to set canvas dimensions.
         if (isLive) {
-            // For live streams, 'playing' is the most reliable event to get video dimensions.
             videoElement.addEventListener('playing', resizeCanvas, { once: true });
         } else {
-            // For uploaded files, 'loadedmetadata' is correct.
             videoElement.addEventListener('loadedmetadata', resizeCanvas, { once: true });
             createVideoControls();
         }
-        // -----------------------
     }
 
     function toggleTracking() {
@@ -204,7 +199,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     color: D3_COLORS(internalId),
                     history: []
                 };
-                // Assign a default name
                 const participantNum = Object.keys(state.participantNames).length + 1;
                 state.participantNames[internalId] = `Participant ${participantNum}`;
             }
@@ -250,7 +244,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // F. Charting & Summary
     // ---------------------------------------------------
     function setupCharts() {
-        // --- Legend ---
         const legend = d3.select('#legend');
         EMOTIONS.forEach((name, i) => {
             const item = legend.append('div').attr('class', 'legend-item');
@@ -258,7 +251,6 @@ document.addEventListener('DOMContentLoaded', () => {
             item.append('span').text(name);
         });
 
-        // --- Bar Chart ---
         const bcMargin = { top: 5, right: 20, bottom: 30, left: 65 };
         const bcContainer = d3.select('#prob-bar-chart');
         const bcWidth = bcContainer.node().getBoundingClientRect().width - bcMargin.left - bcMargin.right;
@@ -275,7 +267,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .append('rect').attr('class', 'bar-b').attr('y', d => charts.yB(d.emotion)).attr('x', 0)
             .attr('height', charts.yB.bandwidth()).attr('width', 0).attr('rx', 3).style('fill', (d, i) => D3_COLORS(i));
 
-        // --- Time Series ---
         const tsMargin = { top: 5, right: 20, bottom: 30, left: 40 };
         const tsContainer = d3.select('#chart');
         const tsWidth = tsContainer.node().getBoundingClientRect().width - tsMargin.left - tsMargin.right;
@@ -351,8 +342,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.dataset.id = id;
                 if (state.selectedParticipantId === id) btn.classList.add('selected');
 
-                btn.addEventListener('click', () => {
-                    if (id !== 'average') { // Allow renaming
+                btn.addEventListener('click', (e) => {
+                    // Use a double-click to rename to avoid accidental input fields
+                    if (e.detail === 2 && id !== 'average') {
                         const input = document.createElement('input');
                         input.type = 'text';
                         input.value = name;
@@ -369,7 +361,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         };
                         input.addEventListener('blur', saveName);
                         input.addEventListener('keydown', e => e.key === 'Enter' && input.blur());
-                    } else { // Just select 'average'
+                    } else { // Single click to select
                         state.selectedParticipantId = id;
                         renderParticipantSelectors();
                         updateCharts();
@@ -392,18 +384,21 @@ document.addEventListener('DOMContentLoaded', () => {
         for (const internalId in summaryData) {
             const p_data = summaryData[internalId];
             const name = state.participantNames[internalId] || `Participant ${parseInt(internalId) + 1}`;
-
             const card = document.createElement('div');
             card.className = 'summary-card';
 
+            // --- MODIFIED PART ---
+            // Updated to display the new narrative summary from the backend.
             card.innerHTML = `
                 <div class="donut-chart" id="donut-${internalId}"></div>
                 <div class="summary-details">
                     <h3>${name}</h3>
-                    <p>Primarily felt <strong>${p_data.dominant_emotion}</strong>.</p>
-                    <p>Detected in <strong>${p_data.total_detections}</strong> frames.</p>
+                    <p class="narrative-summary">"${p_data.narrative_summary}"</p>
+                    <p class="frame-count">Detected in <strong>${p_data.total_detections}</strong> frames.</p>
                 </div>
             `;
+            // --- END MODIFIED PART ---
+
             dom.summaryReport.appendChild(card);
             createDonutChart(`#donut-${internalId}`, p_data.distribution);
         }
