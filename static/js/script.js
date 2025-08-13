@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const D3_COLORS = d3.scaleOrdinal(d3.schemeCategory10);
     const FRAME_SEND_INTERVAL_MS = 200; // ~5 FPS
     const MAX_TIMESERIES_POINTS = 100;
+    const poseEstimator = new HeadPoseEstimator();
 
     let state = {
         isTracking: false,
@@ -39,23 +40,45 @@ document.addEventListener('DOMContentLoaded', () => {
         analysisSection: document.getElementById('analysis-section'),
         participantSelectors: {
             bar: document.getElementById('participant-selector-bar'),
-            ts: document.getElementById('participant-selector-ts')
+            ts: document.getElementById('participant-selector-ts'),
+            attn: document.getElementById('participant-selector-attn')
         },
         summaryContainer: document.getElementById('summary-container'),
         summaryReport: document.getElementById('summary-report'),
     };
 
-    const charts = {};
-
     // ---------------------------------------------------
     // C. Setup & Initialization
     // ---------------------------------------------------
+
+    let chartManager;
+    let attentionChart;
+
     function init() {
-        setupCharts();
+        chartManager = new ChartManager({
+            barChartSelector: '#prob-bar-chart',
+            timeSeriesSelector: '#chart',
+            legendSelector: '#legend',
+            emotions: EMOTIONS,
+            colors: D3_COLORS
+        });
+        chartManager.init();
+
+        attentionChart = new AttentionChart({
+            chartSelector: '#attention-chart-container',
+        });
+        attentionChart.init();
+
         addEventListeners();
-        socket.emit('client_ready'); // Announce that the client is ready
+        poseEstimator.initialize();
+        socket.emit('client_ready');
         requestAnimationFrame(drawLoop);
     }
+
+    socket.on("connect", () => {
+        console.log("Connected to server");
+    });
+
 
     function addEventListeners() {
         dom.uploadInput.addEventListener('change', handleFileUpload);
@@ -80,45 +103,46 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function resetApp() {
-    if (state.isTracking) toggleTracking();
-    if (state.videoSource) {
-        if (state.videoSource.srcObject) {
-            state.videoSource.srcObject.getTracks().forEach(track => track.stop());
+        if (state.isTracking) toggleTracking();
+        if (state.videoSource) {
+            if (state.videoSource.srcObject) {
+                state.videoSource.srcObject.getTracks().forEach(track => track.stop());
+            }
+            state.videoSource.remove();
         }
-        state.videoSource.remove();
+
+        Object.assign(state, {
+            isTracking: false,
+            videoSource: null,
+            sendIntervalId: null,
+            lastFrameResults: [],
+            isMergeMode: false,
+            mergeSelection: []
+        });
+
+        dom.placeholder.classList.replace('placeholder-hidden', 'placeholder-active');
+        showLoader(false);
+
+        if (dom.trackBtn) dom.trackBtn.disabled = true;
+        if (dom.mergeBtn) {
+            dom.mergeBtn.disabled = true;
+            dom.mergeBtn.classList.remove('active');
+        }
+
+        dom.controlsBottom.querySelector('#video-controls')?.remove();
+        dom.overlayCtx.clearRect(0, 0, dom.overlayCanvas.width, dom.overlayCanvas.height);
+        dom.summaryContainer.classList.add('hidden');
+        dom.summaryReport.innerHTML = '';
+        renderParticipantSelectors();
+        if (chartManager) chartManager.clear();
+        if (attentionChart) attentionChart.clear();
     }
-
-    Object.assign(state, {
-        isTracking: false,
-        videoSource: null,
-        sendIntervalId: null,
-        lastFrameResults: [],
-        isMergeMode: false,
-        mergeSelection: []
-    });
-
-    dom.placeholder.classList.replace('placeholder-hidden', 'placeholder-active');
-    showLoader(false);
-
-    if (dom.trackBtn) dom.trackBtn.disabled = true;
-    if (dom.mergeBtn) {
-        dom.mergeBtn.disabled = true;
-        dom.mergeBtn.classList.remove('active');
-    }
-
-    dom.controlsBottom.querySelector('#video-controls')?.remove();
-    dom.overlayCtx.clearRect(0, 0, dom.overlayCanvas.width, dom.overlayCanvas.height);
-    dom.summaryContainer.classList.add('hidden');
-    dom.summaryReport.innerHTML = '';
-    renderParticipantSelectors();
-    clearCharts();
-}
 
 
     async function handleLiveFeed() {
         try {
             resetApp();
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            const stream = await navigator.mediaDevices.getUserMedia({video: true});
             const liveVideoEl = document.createElement('video');
             liveVideoEl.srcObject = stream;
             liveVideoEl.autoplay = true;
@@ -161,9 +185,9 @@ document.addEventListener('DOMContentLoaded', () => {
             dom.overlayCanvas.height = videoElement.videoHeight;
         };
         if (isLive) {
-            videoElement.addEventListener('playing', resizeCanvas, { once: true });
+            videoElement.addEventListener('playing', resizeCanvas, {once: true});
         } else {
-            videoElement.addEventListener('loadedmetadata', resizeCanvas, { once: true });
+            videoElement.addEventListener('loadedmetadata', resizeCanvas, {once: true});
             createVideoControls();
         }
     }
@@ -178,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Clear history for all existing participants but keep their names/IDs
             for (const id in state.participants) {
                 state.participants[id].history = [];
+                state.participants[id].attentionHistory = [];
             }
             dom.summaryContainer.classList.add('hidden');
             dom.summaryReport.innerHTML = '';
@@ -190,14 +215,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function sendFrame() {
-        if (!state.videoSource || state.videoSource.paused || state.videoSource.ended) return;
+    async function sendFrame() {
+        if (!state.videoSource || state.videoSource.paused || state.videoSource.ended || state.videoSource.videoWidth === 0) return;
+
+        // 1. Asynchronously process the frame for head pose
+        await poseEstimator.processFrame(state.videoSource);
+
+        // 2. Get the latest pose data from the estimator
+        const headPoseData = poseEstimator.getLatestPoseData();
+
+        // 3. Send frame and pose data to the server
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = state.videoSource.videoWidth;
         tempCanvas.height = state.videoSource.videoHeight;
         const tempCtx = tempCanvas.getContext('2d');
         tempCtx.drawImage(state.videoSource, 0, 0, tempCanvas.width, tempCanvas.height);
-        socket.emit('frame', tempCanvas.toDataURL('image/jpeg', 0.7));
+
+        socket.emit('frame', {
+            data_url: tempCanvas.toDataURL('image/jpeg', 0.7),
+            head_pose: headPoseData // Use the data from our module
+        });
     }
 
     function toggleMergeMode() {
@@ -225,10 +262,18 @@ document.addEventListener('DOMContentLoaded', () => {
         renderParticipantSelectors();
     }
 
-    function onMergeNotification({ source_id, target_id }) {
+    function onMergeNotification({source_id, target_id}) {
         if (state.participants[source_id] && state.participants[target_id]) {
             state.participants[target_id].history.push(...state.participants[source_id].history);
             state.participants[target_id].history.sort((a, b) => a.timestamp - b.timestamp);
+            const sourceAttnHistory = state.participants[source_id].attentionHistory || [];
+            const targetAttnHistory = state.participants[target_id].attentionHistory || [];
+            if (!state.participants[target_id].attentionHistory) {
+                state.participants[target_id].attentionHistory = [];
+            }
+            state.participants[target_id].attentionHistory.push(...sourceAttnHistory);
+            state.participants[target_id].attentionHistory.sort((a, b) => a.timestamp - b.timestamp);
+
             delete state.participants[source_id];
             // The `onKnownFacesUpdate` will handle the name state
         }
@@ -239,6 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function onFrameData(msg) {
+        console.info("Global Update called.");
         if (!state.isTracking) return;
         const results = JSON.parse(msg);
         state.lastFrameResults = results;
@@ -251,19 +297,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Names are now handled by onKnownFacesUpdate, just create the participant object
                 state.participants[p.id] = {
                     color: D3_COLORS(p.id),
-                    history: []
+                    history: [],
+                    attentionHistory: []
                 };
                 // The name might not be known yet, server will send it via 'known_faces_update'
             }
-            state.participants[p.id].history.push({ timestamp: now, probs: p.probs });
+            state.participants[p.id].history.push({timestamp: now, probs: p.probs});
             if (state.participants[p.id].history.length > MAX_TIMESERIES_POINTS) {
                 state.participants[p.id].history.shift();
+            }
+
+            // Store attention history
+            if (p.engagement !== undefined) {
+                state.participants[p.id].attentionHistory.push({timestamp: now, engagement: p.engagement});
+                if (state.participants[p.id].attentionHistory.length > MAX_TIMESERIES_POINTS) {
+                    state.participants[p.id].attentionHistory.shift();
+                }
             }
         });
         if (newParticipantDetected) {
             renderParticipantSelectors();
         }
-        updateCharts();
+        updateActiveCharts();
     }
 
     function drawLoop() {
@@ -277,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 dom.overlayCtx.lineWidth = 3;
                 dom.overlayCtx.strokeRect(x, y, w, h);
                 dom.overlayCtx.font = 'bold 16px ' + getComputedStyle(document.body).fontFamily;
-                const text = `${name}: ${EMOTIONS[p.emotion]} (${Math.round(p.confidence*100)}%)`;
+                const text = `${name}: ${EMOTIONS[p.emotion]} (${Math.round(p.confidence * 100)}%)`;
                 const textMetrics = dom.overlayCtx.measureText(text);
                 dom.overlayCtx.fillStyle = 'rgba(0,0,0,0.6)';
                 dom.overlayCtx.fillRect(x, y - 22, textMetrics.width + 10, 22);
@@ -292,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // F. Charting, Summary & Participant UI
     // ---------------------------------------------------
     function renderParticipantSelectors() {
-        ['bar', 'ts'].forEach(key => {
+        ['bar', 'ts', 'attn'].forEach(key => {
             const container = dom.participantSelectors[key];
             container.innerHTML = '';
             const selector = document.createElement('div');
@@ -340,9 +395,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleParticipantClick(event, id, name, btnElement) {
         if (id === 'average') {
             state.selectedParticipantId = id;
-            if(state.isMergeMode) toggleMergeMode();
+            if (state.isMergeMode) toggleMergeMode();
             renderParticipantSelectors();
-            updateCharts();
+            updateActiveCharts();
             return;
         }
 
@@ -364,7 +419,7 @@ document.addEventListener('DOMContentLoaded', () => {
             input.select();
             const saveName = () => {
                 const newName = input.value.trim() || `Person ${id}`;
-                socket.emit('rename_person', { id: parseInt(id), name: newName });
+                socket.emit('rename_person', {id: parseInt(id), name: newName});
                 // Server will broadcast 'known_faces_update' to confirm
             };
             input.addEventListener('blur', saveName);
@@ -372,7 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else { // Single-click to select
             state.selectedParticipantId = id;
             renderParticipantSelectors();
-            updateCharts();
+            updateActiveCharts();
         }
     }
 
@@ -382,7 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         dom.summaryContainer.classList.remove('hidden');
         dom.summaryReport.innerHTML = '';
-        dom.analysisSection.scrollTo({ top: dom.analysisSection.scrollHeight, behavior: 'smooth' });
+        dom.analysisSection.scrollTo({top: dom.analysisSection.scrollHeight, behavior: 'smooth'});
 
         for (const id in summaryData) {
             const p_data = summaryData[id];
@@ -396,113 +451,45 @@ document.addEventListener('DOMContentLoaded', () => {
                     <p class="frame-count">Detected in <strong>${p_data.total_detections}</strong> frames.</p>
                 </div>`;
             dom.summaryReport.appendChild(card);
-            createDonutChart(`#donut-${id}`, p_data.distribution);
+            ChartManager.createDonut(`#donut-${id}`, p_data.distribution, {
+                emotions: EMOTIONS,
+                colors: D3_COLORS
+            });
         }
     }
 
-    // The chart functions (setupCharts, updateCharts, clearCharts, createDonutChart)
-    // and video player controls (createVideoControls, updateVideoPlayerUI)
-    // do not need significant changes and are omitted here for brevity.
-    // They are identical to your provided script.
+    function updateActiveCharts() {
+        console.info("Chart update called.");
+        let emotionHistory = [];
+        let attentionHistory = [];
 
-    // <PASTE THE UNCHANGED CHARTING AND VIDEO CONTROL FUNCTIONS HERE>
-    function setupCharts() {
-        const legend = d3.select('#legend');
-        EMOTIONS.forEach((name, i) => {
-            const item = legend.append('div').attr('class', 'legend-item');
-            item.append('div').attr('class', 'legend-color').style('background-color', D3_COLORS(i));
-            item.append('span').text(name);
-        });
-
-        const bcMargin = { top: 5, right: 20, bottom: 30, left: 65 };
-        const bcContainer = d3.select('#prob-bar-chart');
-        const bcWidth = bcContainer.node().getBoundingClientRect().width - bcMargin.left - bcMargin.right;
-        const bcHeight = 180 - bcMargin.top - bcMargin.bottom;
-        charts.bcSvg = bcContainer.append('svg').attr('width', '100%').attr('height', '100%')
-            .attr('viewBox', `0 0 ${bcWidth + bcMargin.left + bcMargin.right} ${bcHeight + bcMargin.top + bcMargin.bottom}`)
-            .append('g').attr('transform', `translate(${bcMargin.left}, ${bcMargin.top})`);
-        charts.yB = d3.scaleBand().domain(EMOTIONS).range([0, bcHeight]).padding(0.2);
-        charts.xB = d3.scaleLinear().domain([0, 1]).range([0, bcWidth]);
-        charts.bcSvg.append('g').attr('class', 'y-axis-b').call(d3.axisLeft(charts.yB).tickSize(0)).select('.domain').remove();
-        charts.bcSvg.append('g').attr('class', 'x-axis-b').attr('transform', `translate(0, ${bcHeight})`)
-            .call(d3.axisBottom(charts.xB).ticks(5).tickFormat(d3.format('.0%')));
-        charts.bars = charts.bcSvg.selectAll('.bar').data(EMOTIONS.map(e => ({ emotion: e, value: 0 }))).enter()
-            .append('rect').attr('class', 'bar-b').attr('y', d => charts.yB(d.emotion)).attr('x', 0)
-            .attr('height', charts.yB.bandwidth()).attr('width', 0).attr('rx', 3).style('fill', (d, i) => D3_COLORS(i));
-
-        const tsMargin = { top: 5, right: 20, bottom: 30, left: 40 };
-        const tsContainer = d3.select('#chart');
-        const tsWidth = tsContainer.node().getBoundingClientRect().width - tsMargin.left - tsMargin.right;
-        const tsHeight = 180 - tsMargin.top - tsMargin.bottom;
-        charts.tsSvg = tsContainer.append('svg').attr('width', '100%').attr('height', '100%')
-            .attr('viewBox', `0 0 ${tsWidth + tsMargin.left + tsMargin.right} ${tsHeight + tsMargin.top + tsMargin.bottom}`)
-            .append('g').attr('transform', `translate(${tsMargin.left},${tsMargin.top})`);
-        charts.xTS = d3.scaleTime().range([0, tsWidth]);
-        charts.yTS = d3.scaleLinear().domain([0, 1]).range([tsHeight, 0]);
-        charts.tsSvg.append('g').attr('class', 'x-axis-ts').attr('transform', `translate(0,${tsHeight})`);
-        charts.tsSvg.append('g').attr('class', 'y-axis-ts').call(d3.axisLeft(charts.yTS).ticks(5).tickFormat(d3.format('.0%')));
-        charts.lineGen = EMOTIONS.map((_, i) => d3.line().x(d => charts.xTS(d.timestamp)).y(d => charts.yTS(d.probs[i])).curve(d3.curveMonotoneX));
-        charts.lines = charts.tsSvg.selectAll('.line-ts').data(EMOTIONS).enter().append('path')
-            .attr('class', 'line-ts').style('stroke', (d, i) => D3_COLORS(i)).style('fill', 'none').style('stroke-width', 2.5);
-    }
-    function updateCharts() {
-        let history = [];
         if (state.selectedParticipantId === 'average') {
+            // This data aggregation logic correctly stays here
             const allHistory = Object.values(state.participants).flatMap(p => p.history);
             if (allHistory.length > 0) {
-                 const timeMap = new Map();
+                const timeMap = new Map();
                 allHistory.forEach(d => {
                     const key = d.timestamp.getTime();
-                    if (!timeMap.has(key)) timeMap.set(key, { count: 0, probs: new Array(EMOTIONS.length).fill(0) });
+                    if (!timeMap.has(key)) timeMap.set(key, {count: 0, probs: new Array(EMOTIONS.length).fill(0)});
                     const entry = timeMap.get(key);
                     entry.count++;
                     d.probs.forEach((p, i) => entry.probs[i] += p);
                 });
                 const avgHistory = [];
                 timeMap.forEach((value, key) => {
-                    avgHistory.push({ timestamp: new Date(key), probs: value.probs.map(p => p / value.count) });
+                    avgHistory.push({timestamp: new Date(key), probs: value.probs.map(p => p / value.count)});
                 });
-                history = avgHistory.sort((a, b) => a.timestamp - b.timestamp);
+                emotionHistory = avgHistory.sort((a, b) => a.timestamp - b.timestamp);
             }
         } else if (state.participants[state.selectedParticipantId]) {
-            history = state.participants[state.selectedParticipantId].history;
+            emotionHistory = state.participants[state.selectedParticipantId].history;
+            attentionHistory = state.participants[state.selectedParticipantId].attentionHistory || [];
         }
 
-        const latestProbs = history.length > 0 ? history[history.length - 1].probs : new Array(EMOTIONS.length).fill(0);
-        const barData = EMOTIONS.map((e, i) => ({ emotion: e, value: latestProbs[i] }));
-        charts.bars.data(barData).transition().duration(FRAME_SEND_INTERVAL_MS / 2).attr('width', d => charts.xB(d.value));
-
-        if (history.length < 2) {
-            charts.lines.attr('d', null);
-            return;
-        };
-        charts.xTS.domain(d3.extent(history, d => d.timestamp));
-        charts.tsSvg.select('.x-axis-ts').transition().duration(FRAME_SEND_INTERVAL_MS / 2).call(d3.axisBottom(charts.xTS).ticks(5));
-        charts.lines.data(EMOTIONS).attr('d', (d, i) => charts.lineGen[i](history));
+        chartManager.update(emotionHistory, FRAME_SEND_INTERVAL_MS / 2);
+        attentionChart.update(attentionHistory, FRAME_SEND_INTERVAL_MS / 2);
     }
-    function clearCharts() {
-        const emptyData = EMOTIONS.map(e => ({ emotion: e, value: 0 }));
-        charts.bars.data(emptyData).transition().duration(100).attr('width', 0);
-        charts.lines.attr('d', null);
-    }
-    function createDonutChart(selector, distribution) {
-        const data = distribution.map((value, i) => ({ value, name: EMOTIONS[i] })).filter(d => d.value > 0);
-        const width = 80, height = 80, margin = 5;
-        const radius = Math.min(width, height) / 2 - margin;
 
-        const svg = d3.select(selector).append("svg")
-            .attr("class", "donut-chart-svg")
-            .attr("viewBox", `0 0 ${width} ${height}`)
-            .append("g")
-            .attr("transform", `translate(${width / 2},${height / 2})`);
-
-        const pie = d3.pie().value(d => d.value).sort(null);
-        const arc = d3.arc().innerRadius(radius * 0.5).outerRadius(radius);
-
-        svg.selectAll('path').data(pie(data)).enter().append('path')
-            .attr('d', arc)
-            .attr('fill', d => D3_COLORS(EMOTIONS.indexOf(d.data.name)));
-    }
     function createVideoControls() {
         const controlsContainer = document.createElement('div');
         controlsContainer.id = 'video-controls';
@@ -533,6 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         updateVideoPlayerUI(video, playPauseBtn, seekBar, timeDisplay);
     }
+
     function updateVideoPlayerUI(video, playPauseBtn, seekBar, timeDisplay) {
         const formatTime = (s) => new Date(1000 * s).toISOString().substr(14, 5);
         seekBar.value = (video.currentTime / video.duration) * 100 || 0;
