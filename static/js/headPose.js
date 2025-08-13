@@ -70,9 +70,11 @@ class HeadPoseEstimator {
             // NOTE: Using the landmark index as a temporary ID. Your backend tracker will assign a persistent ID.
             const id = index;
             try {
-                const [pitch, yaw, roll] = this._estimateHeadPose(landmarks, videoWidth, videoHeight);
+                const [rawPitch, yaw, roll] = this._estimateHeadPose(landmarks, videoWidth, videoHeight);
+                const pitch = rawPitch + 180; // offset to normalize
                 const engagement = this._computeEngagement(pitch, yaw);
-                newPoseData[id] = {pitch, yaw, roll, engagement};
+                newPoseData[id] = {pitch, yaw, roll, engagement, rawPitch};
+
             } catch (e) {
                 console.error(`Error estimating head pose for face ${id}:`, e);
             }
@@ -172,8 +174,36 @@ class HeadPoseEstimator {
      * @returns {number} An engagement score between 0 and 1.
      */
     _computeEngagement(pitch, yaw) {
-        const yawPenalty = Math.min(Math.abs(yaw) / 30, 1);     // Full penalty at 30 degrees
-        const pitchPenalty = Math.min(Math.abs(pitch) / 20, 1); // Full penalty at 20 degrees
-        return +(1 - 0.5 * (yawPenalty + pitchPenalty)).toFixed(2);
+
+        // "Comfort zones" before penalty kicks in
+        const yawComfort = 15;   // degrees with no penalty
+        const pitchComfort = 10; // degrees with no penalty
+
+        // Max considered angles before "full disengagement"
+        const yawMax = 60;
+        const pitchMax = 40;
+
+        // Compute smooth penalties between 0 and 1
+        const yawPenalty = Math.pow(
+            Math.min(Math.max(Math.abs(yaw) - yawComfort, 0) / (yawMax - yawComfort), 1),
+            1.5 // exponent controls how fast the drop feels
+        );
+
+        const pitchPenalty = Math.pow(
+            Math.min(Math.max(Math.abs(pitch) - pitchComfort, 0) / (pitchMax - pitchComfort), 1),
+            1.5
+        );
+
+        // Weight yaw less than pitch if desired
+        const yawWeight = 0.4;
+        const pitchWeight = 0.6;
+
+        // Engagement drops based on weighted penalties
+        const engagement = 1 - (yawWeight * yawPenalty + pitchWeight * pitchPenalty);
+
+        // Clamp and round
+        console.log("Actual Engagement minus penalties" + engagement);
+        console.log("Engagement for chart: " + +Math.max(0, Math.min(1, engagement)).toFixed(2));
+        return +Math.max(0, Math.min(1, engagement)).toFixed(2);
     }
 }
