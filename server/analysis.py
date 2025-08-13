@@ -10,7 +10,6 @@ from collections import OrderedDict, Counter
 class FaceReIDTracker:
     """
     Tracks, re-identifies, and manages faces using the 'face_recognition' library.
-    (This is the exact same class from your app.py, moved here)
     """
 
     def __init__(self, tolerance=0.55):
