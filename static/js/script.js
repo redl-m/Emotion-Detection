@@ -351,7 +351,7 @@ document.addEventListener('DOMContentLoaded', () => {
             container.innerHTML = '';
             const selector = document.createElement('div');
             selector.className = 'participant-selector';
-            const ids = ['average', ...Object.keys(state.participantNames)];
+            const ids = ['average', ...Object.keys(state.participants)];
             ids.forEach(id => {
                 const name = (id === 'average') ? 'Avg' : (state.participantNames[id] || `P${id}`);
                 const btn = document.createElement('button');
@@ -456,8 +456,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     }
-
-    // script.js
 
     function updateActiveCharts() {
         let emotionHistory = [];
