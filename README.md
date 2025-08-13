@@ -12,13 +12,19 @@ To run a local copy of the project, please follow the instructions below.
 
 ### Development server
 
-To start a local development server, navigate to /server and run:
+To start a local development server, navigate to the server:
+
+```bash
+cd .\server\
+```
+
+and run:
 
 ```bash
 python app.py
 ```
 
-or run
+or run:
 
 ```bash
 python .\server\app.py
