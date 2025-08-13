@@ -39,4 +39,4 @@ Distributed under CC-0. See `LICENSE.txt` for more information.
 
 Michael Redl - [Personal Website](https://michaeljosefredl.at) - [@redl_m](https://www.instagram.com/redl__m/) - michael.redl14042004@gmail.com
 
-Project Link: [https://github.com/redl-m/Portfolio]((https://github.com/redl-m/Portfolio))
+Project Link: [https://github.com/redl-m/Emotion-Detection](https://github.com/redl-m/Emotion-Detection)
