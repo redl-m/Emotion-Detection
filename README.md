@@ -21,7 +21,7 @@ python app.py
 or run
 
 ```bash
-cd ./server/python app.py
+python .\server\app.py
 ```
 
 directly.
