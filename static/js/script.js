@@ -462,7 +462,6 @@ document.addEventListener('DOMContentLoaded', () => {
         let attentionHistory = []; // Initialized as empty
 
         if (state.selectedParticipantId === 'average') {
-            // --- Average Emotion Calculation (your existing, correct code) ---
             const allEmotionHistory = Object.values(state.participants).flatMap(p => p.history);
             if (allEmotionHistory.length > 0) {
                 const timeMapEmotions = new Map();

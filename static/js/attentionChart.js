@@ -45,12 +45,6 @@ class AttentionChart {
         c.xAxis = c.svg.append('g').attr('class', 'x-axis').attr('transform', `translate(0,${height})`);
         c.yAxis = c.svg.append('g').attr('class', 'y-axis').call(d3.axisLeft(c.y).ticks(5).tickFormat(d3.format('.0%')));
 
-        // TODO: uniform looking title
-        c.svg.append("text")
-            .attr("x", width / 2).attr("y", 0 - (margin.top / 2) + 5)
-            .attr("text-anchor", "middle").style("font-size", "16px").style("fill", "#666")
-            .text("Attention Level Over Time");
-
         // Line generator and path element
         c.line = d3.line().x(d => c.x(d.timestamp)).y(d => c.y(d.engagement)).curve(d3.curveMonotoneX);
         c.path = c.svg.append('path').attr('class', 'attention-line').style('stroke', '#1f77b4').style('fill', 'none').style('stroke-width', 2);
@@ -64,22 +58,31 @@ class AttentionChart {
     update(history, transitionDuration = 100) {
         if (!this.chart.svg) return;
 
-        const c = this.chart;
-        if (!history || history.length < 2) {
+        // Filter out invalid points
+        const validHistory = (history || []).filter(d =>
+            d.timestamp instanceof Date &&
+            !isNaN(d.timestamp) &&
+            typeof d.engagement === 'number' &&
+            !isNaN(d.engagement)
+        );
+
+        if (validHistory.length < 2) {
             this.clear();
             return;
         }
 
-        // Update scale domains
-        c.x.domain(d3.extent(history, d => d.timestamp));
+        const c = this.chart;
+        c.x.domain(d3.extent(validHistory, d => d.timestamp));
 
         // Redraw axes and line
-        c.xAxis.transition().duration(transitionDuration).call(d3.axisBottom(c.x).ticks(5));
-        c.path
-            .datum(history)
+        c.xAxis.transition().duration(transitionDuration)
+            .call(d3.axisBottom(c.x).ticks(5));
+
+        c.path.datum(validHistory)
             .transition().duration(transitionDuration)
             .attr('d', c.line);
     }
+
 
     /**
      * Clears all data from the chart.
