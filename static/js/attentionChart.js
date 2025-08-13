@@ -45,7 +45,7 @@ class AttentionChart {
         c.xAxis = c.svg.append('g').attr('class', 'x-axis').attr('transform', `translate(0,${height})`);
         c.yAxis = c.svg.append('g').attr('class', 'y-axis').call(d3.axisLeft(c.y).ticks(5).tickFormat(d3.format('.0%')));
 
-        // Title
+        // TODO: uniform looking title
         c.svg.append("text")
             .attr("x", width / 2).attr("y", 0 - (margin.top / 2) + 5)
             .attr("text-anchor", "middle").style("font-size", "16px").style("fill", "#666")

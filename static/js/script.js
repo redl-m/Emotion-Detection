@@ -284,7 +284,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function onFrameData(msg) {
-        console.info("Global Update called.");
         if (!state.isTracking) return;
         const results = JSON.parse(msg);
         state.lastFrameResults = results;
@@ -458,34 +457,69 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // script.js
+
     function updateActiveCharts() {
-        console.info("Chart update called.");
         let emotionHistory = [];
-        let attentionHistory = [];
+        let attentionHistory = []; // Initialized as empty
 
         if (state.selectedParticipantId === 'average') {
-            // This data aggregation logic correctly stays here
-            const allHistory = Object.values(state.participants).flatMap(p => p.history);
-            if (allHistory.length > 0) {
-                const timeMap = new Map();
-                allHistory.forEach(d => {
+            // --- Average Emotion Calculation (your existing, correct code) ---
+            const allEmotionHistory = Object.values(state.participants).flatMap(p => p.history);
+            if (allEmotionHistory.length > 0) {
+                const timeMapEmotions = new Map();
+                allEmotionHistory.forEach(d => {
                     const key = d.timestamp.getTime();
-                    if (!timeMap.has(key)) timeMap.set(key, {count: 0, probs: new Array(EMOTIONS.length).fill(0)});
-                    const entry = timeMap.get(key);
+                    if (!timeMapEmotions.has(key)) timeMapEmotions.set(key, {
+                        count: 0,
+                        probs: new Array(EMOTIONS.length).fill(0)
+                    });
+                    const entry = timeMapEmotions.get(key);
                     entry.count++;
                     d.probs.forEach((p, i) => entry.probs[i] += p);
                 });
-                const avgHistory = [];
-                timeMap.forEach((value, key) => {
-                    avgHistory.push({timestamp: new Date(key), probs: value.probs.map(p => p / value.count)});
+                const avgEmotionHistory = [];
+                timeMapEmotions.forEach((value, key) => {
+                    avgEmotionHistory.push({timestamp: new Date(key), probs: value.probs.map(p => p / value.count)});
                 });
-                emotionHistory = avgHistory.sort((a, b) => a.timestamp - b.timestamp);
+                emotionHistory = avgEmotionHistory.sort((a, b) => a.timestamp - b.timestamp);
             }
+
+            const allAttentionHistory = Object.values(state.participants).flatMap(p => p.attentionHistory || []);
+            if (allAttentionHistory.length > 0) {
+                const timeMapAttention = new Map();
+                allAttentionHistory.forEach(d => {
+                    // Guard against malformed data entries
+                    if (!d || !d.timestamp) return;
+
+                    const key = d.timestamp.getTime();
+                    if (!timeMapAttention.has(key)) {
+                        timeMapAttention.set(key, {count: 0, totalEngagement: 0});
+                    }
+                    const entry = timeMapAttention.get(key);
+                    entry.count++;
+                    entry.totalEngagement += d.engagement;
+                });
+
+                const avgAttentionHistory = [];
+                timeMapAttention.forEach((value, key) => {
+                    avgAttentionHistory.push({
+                        timestamp: new Date(key),
+                        engagement: value.totalEngagement / value.count
+                    });
+                });
+
+                // assigns the calculated average to the variable.
+                attentionHistory = avgAttentionHistory.sort((a, b) => a.timestamp - b.timestamp);
+            }
+
         } else if (state.participants[state.selectedParticipantId]) {
+            // This part was already correct. It fetches data for a single participant.
             emotionHistory = state.participants[state.selectedParticipantId].history;
             attentionHistory = state.participants[state.selectedParticipantId].attentionHistory || [];
         }
 
+        // These calls will now receive the correct data for both 'average' and individual views.
         chartManager.update(emotionHistory, FRAME_SEND_INTERVAL_MS / 2);
         attentionChart.update(attentionHistory, FRAME_SEND_INTERVAL_MS / 2);
     }
