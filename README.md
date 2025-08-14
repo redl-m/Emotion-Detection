@@ -2,8 +2,8 @@
 
 ## About
 
-This project was trained on [kaggle's FER 2013 dataset](https://www.kaggle.com/datasets/msambare/fer2013) and built using [PyTorch](https://pytorch.org) version 2.7.1, [D3](https://d3js.org) version 7.9.0,
-[OpenCV](https://opencv.org/) version 4.12.0.88 and [dlib's face-recognition](https://dlib.net/) version 1.3.0.  
+This project was trained on [kaggle's FER-2013 dataset](https://www.kaggle.com/datasets/msambare/fer2013) and built using [PyTorch](https://pytorch.org) version 2.7.1, [D3](https://d3js.org) version 7.9.0,
+[OpenCV](https://opencv.org) version 4.12.0.88 and [dlib's face-recognition](https://dlib.net) version 1.3.0.  
 The system detects emotions using PyTorch and visualizes them using D3. Additionally, the attention level is estimated using OpenCV. dlib's face-recognition is used to rename and memorize faces during multiple runs per program execution.
 
 ## Getting Started
@@ -12,7 +12,7 @@ To run a local copy of the project, please follow the instructions below.
 
 ### Data
 
-datasets.py expects to find the two folder with test and training data to be found in: root/data, which should contain two folders - test and train - received from [kaggle's FER 2013 dataset](https://www.kaggle.com/datasets/msambare/fer2013).
+datasets.py expects to find the two folder with test and training data to be found in: root/data, which should contain two folders - test and train - received from [kaggle's FER-2013 dataset](https://www.kaggle.com/datasets/msambare/fer2013).
 
 ### Development server
 
