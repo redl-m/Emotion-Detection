@@ -10,7 +10,7 @@ The system detects emotions using PyTorch and visualizes them using D3. Addition
 
 To run a local copy of the project, please follow the instructions below.
 
-### Train and Test Data
+### Data
 
 datasets.py expects to find the two folder with test and training data to be found in: root/data, which should contain two folders - test and train - received from [kaggle's FER 2013 dataset](https://www.kaggle.com/datasets/msambare/fer2013).
 
