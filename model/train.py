@@ -6,7 +6,7 @@ from torch import optim, nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from model import EmotionCNN  # assumes model.py is in the same folder
+from model import EmotionCNN
 
 
 def train(data_dir, epochs, batch_size, lr, save_path):

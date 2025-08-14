@@ -1,4 +1,6 @@
 class ChartManager {
+
+
     /**
      * @param {object} config Configuration for the chart manager.
      * @param {string} config.barChartSelector CSS selector for the bar chart container.
@@ -12,6 +14,7 @@ class ChartManager {
         this.charts = {}; // To hold SVG elements, scales, etc.
     }
 
+
     /**
      * Sets up the chart areas, scales, and axes.
      */
@@ -21,6 +24,11 @@ class ChartManager {
         this._setupTimeSeriesChart();
     }
 
+
+    /**
+     * Sets up the chart legends.
+     * @private
+     */
     _setupLegend() {
         const legend = d3.select(this.config.legendSelector);
         legend.html(''); // Clear existing
@@ -31,6 +39,11 @@ class ChartManager {
         });
     }
 
+
+    /**
+     * Builds the bar chart's SVG, axes and bars with default values.
+     * @private
+     */
     _setupBarChart() {
         const c = this.charts; // shorthand
         const margin = { top: 5, right: 20, bottom: 30, left: 65 };
@@ -54,6 +67,11 @@ class ChartManager {
             .attr('height', c.yB.bandwidth()).attr('width', 0).attr('rx', 3).style('fill', (d, i) => this.config.colors(i));
     }
 
+
+    /**
+     * Sets up the time series chart's SVG, axes and bars with default values.
+     * @private
+     */
     _setupTimeSeriesChart() {
         const c = this.charts; // shorthand
         const margin = { top: 5, right: 20, bottom: 30, left: 40 };
@@ -75,6 +93,7 @@ class ChartManager {
         c.lines = c.tsSvg.selectAll('.line-ts').data(this.config.emotions).enter().append('path')
             .attr('class', 'line-ts').style('stroke', (d, i) => this.config.colors(i)).style('fill', 'none').style('stroke-width', 2.5);
     }
+
 
     /**
      * Updates the charts with new data.
@@ -99,6 +118,7 @@ class ChartManager {
         c.lines.data(this.config.emotions).attr('d', (d, i) => c.lineGen[i](history));
     }
 
+
     /**
      * Clears all data from the charts.
      */
@@ -107,6 +127,7 @@ class ChartManager {
         this.charts.bars.data(emptyData).transition().duration(100).attr('width', 0);
         this.charts.lines.attr('d', null);
     }
+
 
     /**
      * A static utility method to create a standalone donut chart.

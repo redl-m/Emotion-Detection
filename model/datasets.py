@@ -1,7 +1,7 @@
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-# define your transforms exactly as before:
+# define transforms:
 transform = transforms.Compose([
     transforms.Grayscale(num_output_channels=1),
     transforms.Resize((48,48)),
@@ -9,7 +9,7 @@ transform = transforms.Compose([
     transforms.Normalize((0.5,), (0.5,))
 ])
 
-# point to the root train/test dirs:
+# root train/test dirs:
 train_folder = '../data/train'
 test_folder  = '../data/test'
 

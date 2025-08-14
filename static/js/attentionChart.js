@@ -1,11 +1,14 @@
 class AttentionChart {
+
+
     /**
-     * @param {string} selector CSS selector for the chart container.
+     * @param {{chartSelector: string}} selector CSS selector for the chart container.
      */
     constructor(selector) {
         this.selector = selector;
         this.chart = {}; // To hold D3 components
     }
+
 
     /**
      * Initializes the chart, setting up the SVG, scales, and axes.
@@ -49,6 +52,7 @@ class AttentionChart {
         c.line = d3.line().x(d => c.x(d.timestamp)).y(d => c.y(d.engagement)).curve(d3.curveMonotoneX);
         c.path = c.svg.append('path').attr('class', 'attention-line').style('stroke', '#1f77b4').style('fill', 'none').style('stroke-width', 2);
     }
+
 
     /**
      * Updates/renders the chart with a new set of data.

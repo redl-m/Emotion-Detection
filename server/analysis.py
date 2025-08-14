@@ -1,11 +1,8 @@
-# server/analysis.py
-
 import numpy as np
 import cv2
 import torch
 import face_recognition
 from collections import OrderedDict, Counter
-
 
 class FaceReIDTracker:
     """
@@ -26,7 +23,7 @@ class FaceReIDTracker:
         return False
 
     def merge_persons(self, source_id, target_id, tracking_data):
-        """ Merges persons, now also handling the external tracking_data dict. """
+        """ Merges persons also handling the external tracking_data dict. """
         target_meta = next((m for m in self.known_face_metadata if m['id'] == target_id), None)
         if not target_meta:
             return False
@@ -76,8 +73,7 @@ class FaceReIDTracker:
 
 def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels):
     """
-    Generates an LLM-like narrative of emotional evolution.
-    (This is the exact same function from your app.py, moved here)
+    Generates an LLM-like narrative of emotional evolution. TODO: rework, also use attention
     """
     if not emotions_sequence or len(emotions_sequence) < 10:
         return f"Not enough emotional data for {person_name} to generate a meaningful summary."
@@ -107,18 +103,15 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
 def analyze_frame(frame, emotion_model, tracker, tracking_data, head_pose_data):
     """
     Processes a single frame: tracks faces, classifies emotions, and integrates engagement.
-    This function is pure and does not rely on global state.
     """
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     tracked_persons = tracker.update(rgb_frame)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # The head_pose_data keys are "0", "1", etc., from MediaPipe's detection order.
-    # We'll align them with our tracker's detection order.
     pose_by_index = {int(k): v for k, v in head_pose_data.items()}
 
     results = []
-    # We iterate through tracked_persons in the order they were detected.
+    # Iterate through tracked_persons in the order they were detected.
     for i, (person_id, data) in enumerate(tracked_persons.items()):
         (x, y, w, h) = data['bbox']
         roi_gray = gray[y:y + h, x:x + w]

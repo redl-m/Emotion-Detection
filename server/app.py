@@ -1,5 +1,3 @@
-# server/app.py
-
 import os
 import sys
 import json
@@ -20,9 +18,9 @@ from model.model import EmotionCNN
 from server.analysis import FaceReIDTracker, analyze_frame, generate_summary_payload
 
 # --- Global State for the Worker Thread ---
-# This lock ensures thread-safe access to the latest_frame.
+# Ensures thread-safe access to the latest_frame.
 frame_lock = threading.Lock()
-# This variable will hold the most recent frame received from the client.
+# Holds the most recent frame received from the client.
 latest_frame_data = None
 
 
@@ -49,9 +47,8 @@ def create_app():
     # --- Worker Thread for Frame Processing ---
     def analysis_worker():
         """
-        This function runs in a background thread, continuously processing
-        the latest available frame. This prevents the SocketIO event handlers
-        from being blocked by long-running analysis tasks.
+        Runs in a background thread, continuously processing the latest available frame.
+        This prevents the SocketIO event handlers from being blocked by long-running analysis tasks.
         """
         global latest_frame_data
         print("INFO: Analysis worker thread started.")
@@ -127,8 +124,8 @@ def create_app():
     @socketio.on('frame')
     def on_frame(payload):
         """
-        This handler is now much faster. It only decodes the frame
-        and places it in a shared variable for the worker thread to pick up.
+        This handler only decodes the frame and places it in a shared variable
+        for the worker thread to pick up.
         It overwrites the previous frame if the worker hasn't processed it yet,
         which is the desired behavior to prevent a backlog.
         """

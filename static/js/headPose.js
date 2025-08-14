@@ -1,10 +1,13 @@
 class HeadPoseEstimator {
+
+
     constructor() {
         this.faceMesh = null;
         this.videoElement = null;
         this.latestPoseData = {}; // Stores { id: { pitch, yaw, roll, engagement } }
         this.isReady = false;
     }
+
 
     /**
      * Initializes the MediaPipe FaceMesh model and sets up the callback.
@@ -19,7 +22,6 @@ class HeadPoseEstimator {
             }
         });
 
-
         this.faceMesh.setOptions({
             selfieMode: true,
             maxNumFaces: 1,
@@ -28,11 +30,11 @@ class HeadPoseEstimator {
             minTrackingConfidence: 0.5
         });
 
-
         this.faceMesh.onResults(this._onResults.bind(this));
         this.isReady = true;
         console.log("HeadPoseEstimator initialized.");
     }
+
 
     /**
      * Main processing function. Sends a video frame to FaceMesh for analysis.
@@ -45,6 +47,7 @@ class HeadPoseEstimator {
         await this.faceMesh.send({image: videoElement});
     }
 
+
     /**
      * Returns the most recently calculated pose data.
      * @returns {object} The latest pose data.
@@ -53,9 +56,11 @@ class HeadPoseEstimator {
         return this.latestPoseData;
     }
 
+
     /**
-     * [Private] Callback function for when FaceMesh has results.
+     * Callback function for when FaceMesh has results.
      * @param {object} results - The results from FaceMesh.
+     * @private
      */
     _onResults(results) {
         if (!window.cvReady || !this.videoElement || !results.multiFaceLandmarks) {
@@ -67,7 +72,7 @@ class HeadPoseEstimator {
         const {videoWidth, videoHeight} = this.videoElement;
 
         results.multiFaceLandmarks.forEach((landmarks, index) => {
-            // NOTE: Using the landmark index as a temporary ID. Your backend tracker will assign a persistent ID.
+            // Using the landmark index as a temporary ID only, the backend's tracker has a different ID
             const id = index;
             try {
                 const [rawPitch, yaw, roll] = this._estimateHeadPose(landmarks, videoWidth, videoHeight);
@@ -83,11 +88,20 @@ class HeadPoseEstimator {
         this.latestPoseData = newPoseData;
     }
 
+
     /**
-     * [Private] Estimates head pose angles from facial landmarks using OpenCV.js.
+     * Estimates head pose angles from facial landmarks using OpenCV.js.
      * Ensures OpenCV is ready, validates landmarks, and uses correct matrix formats.
+     *
+     * @param {Array<{x: number, y: number}>} landmarks - Array of normalized facial landmarks (0–1 range).
+     * @param {number} width - Image width in pixels.
+     * @param {number} height - Image height in pixels.
+     * @returns {number[]} Array containing [pitch, yaw, roll] in degrees.
+     * @throws {Error} If OpenCV.js is not ready, landmarks are invalid, or pose estimation fails.
+     * @private
      */
     _estimateHeadPose(landmarks, width, height) {
+
         // Wait for OpenCV.js to be ready
         if (!window.cvReady || typeof cv === "undefined") {
             throw new Error("OpenCV.js not ready yet");
@@ -168,10 +182,11 @@ class HeadPoseEstimator {
 
 
     /**
-     * [Private] Calculates a simple engagement score from pitch and yaw.
+     * Calculates a simple engagement score from pitch and yaw.
      * @param {number} pitch - The pitch angle in degrees.
      * @param {number} yaw - The yaw angle in degrees.
      * @returns {number} An engagement score between 0 and 1.
+     * @private
      */
     _computeEngagement(pitch, yaw) {
 
@@ -202,8 +217,6 @@ class HeadPoseEstimator {
         const engagement = 1 - (yawWeight * yawPenalty + pitchWeight * pitchPenalty);
 
         // Clamp and round
-        console.log("Actual Engagement minus penalties" + engagement);
-        console.log("Engagement for chart: " + +Math.max(0, Math.min(1, engagement)).toFixed(2));
         return +Math.max(0, Math.min(1, engagement)).toFixed(2);
     }
 }

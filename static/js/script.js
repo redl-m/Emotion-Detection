@@ -15,9 +15,9 @@ document.addEventListener('DOMContentLoaded', () => {
         sendIntervalId: null,
         lastFrameResults: [],
         participants: {}, // { id: { color, history: [...] }}
-        participantNames: {}, // { id: "Name" } -> Synced with server
+        participantNames: {}, // { id: "Name" }, synced with server
         selectedParticipantId: 'average',
-        isMergeMode: false, // For merging people
+        isMergeMode: false,
         mergeSelection: [], // Stores [source_id, target_id] for merging
     };
 
@@ -54,7 +54,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let chartManager;
     let attentionChart;
 
+
+    /**
+     * Initializes chart managers,  adds event listeners and connects to the server.
+     */
     function init() {
+
         chartManager = new ChartManager({
             barChartSelector: '#prob-bar-chart',
             timeSeriesSelector: '#chart',
@@ -80,7 +85,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
 
+    /**
+     * Adds event listeners to html elements and socket.
+     */
     function addEventListeners() {
+
         dom.uploadInput.addEventListener('change', handleFileUpload);
         dom.liveBtn.addEventListener('click', handleLiveFeed);
         dom.trackBtn.addEventListener('click', toggleTracking);
@@ -97,12 +106,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------
     // D. Core App Logic (Video & Tracking)
     // ---------------------------------------------------
+
+    /**
+     * Toggles between showing the placeholder or content.
+     * @param isShowing True, if placeholder should be invisible and content shown, false otherwise.
+     */
     function showLoader(isShowing) {
+
         dom.loader.classList.toggle('hidden', !isShowing);
         dom.placeholderContent.classList.toggle('hidden', isShowing);
     }
 
+
+    /**
+     * Resets the app by clearing all object sates, setting buttons to defaults
+     * and clearing all charts.
+     */
     function resetApp() {
+
         if (state.isTracking) toggleTracking();
         if (state.videoSource) {
             if (state.videoSource.srcObject) {
@@ -139,7 +160,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
 
+    /**
+     * Initializes and starts a live video feed from the user's camera.
+     * @returns {Promise<void>} Resolves when the video starts playing.
+     * @throws {Error} If the camera cannot be accessed or permissions are denied.
+     */
     async function handleLiveFeed() {
+
         try {
             resetApp();
             const stream = await navigator.mediaDevices.getUserMedia({video: true});
@@ -157,7 +184,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+
+    /**
+     * Handles file uploads for video analysis.
+     * @param event The upload event to handle.
+     */
     function handleFileUpload(event) {
+
         const file = event.target.files[0];
         if (file) {
             resetApp();
@@ -172,7 +205,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+
+    /**
+     * Sets up the video source based on the given video element.
+     * @param videoElement The video element to analyze.
+     * @param isLive True, if live analysis is used, false otherwise.
+     */
     function setupVideoSource(videoElement, isLive) {
+
         state.videoSource = videoElement;
         dom.videoWrapper.prepend(videoElement);
         dom.placeholder.classList.replace('placeholder-active', 'placeholder-hidden');
@@ -192,7 +232,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+
+    /**
+     * Toggles tracking state of the program and clears user history.
+     */
     function toggleTracking() {
+
         state.isTracking = !state.isTracking;
         dom.trackBtn.classList.toggle('active', state.isTracking);
         dom.trackBtnText.textContent = state.isTracking ? 'Stop & Summarize' : 'Start Tracking';
@@ -215,7 +260,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+
+    /**
+     * Emits the current frame for the backend to process.
+     * @returns {Promise<void>} A promise that resolves when the frame has been processed
+     * and sent, without returning any value.
+     */
     async function sendFrame() {
+
         if (!state.videoSource || state.videoSource.paused || state.videoSource.ended || state.videoSource.videoWidth === 0) return;
 
         // 1. Asynchronously process the frame for head pose
@@ -237,7 +289,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+
+    /**
+     * Toggles the merge mode to merge two persons into one.
+     */
     function toggleMergeMode() {
+
         state.isMergeMode = !state.isMergeMode;
         state.mergeSelection = []; // Clear selection on toggle
         dom.mergeBtn.classList.toggle('active', state.isMergeMode);
@@ -247,7 +304,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------
     // E. Real-time Data Handling & Visualization
     // ---------------------------------------------------
+
+    /**
+     * Updates the list of known participants based on metadata from the server.
+     * Creates new participant entries with color and history if they don't exist yet,
+     * and refreshes participant selectors in the UI.
+     * @param {Array<{id: string, name: string}>} metadata - Array of participant metadata objects.
+     */
     function onKnownFacesUpdate(metadata) {
+
         const newNames = {};
         metadata.forEach(p => {
             newNames[p.id] = p.name;
@@ -262,7 +327,14 @@ document.addEventListener('DOMContentLoaded', () => {
         renderParticipantSelectors();
     }
 
+
+    /**
+     * Merges two participant records into one, combining their history and attention data.
+     * Deletes the source participant entry after merging and resets merge mode UI state.
+     * @param {{source_id: string, target_id: string}} param0 - Object containing source and target participant IDs.
+     */
     function onMergeNotification({source_id, target_id}) {
+
         if (state.participants[source_id] && state.participants[target_id]) {
             state.participants[target_id].history.push(...state.participants[source_id].history);
             state.participants[target_id].history.sort((a, b) => a.timestamp - b.timestamp);
@@ -283,7 +355,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // The selectors will be re-rendered by the subsequent `known_faces_update` event
     }
 
+
+    /**
+     * Processes incoming frame analysis data from the server.
+     * Updates participant histories, creates new participants when detected
+     * and refreshes charts and selectors.
+     * @param {string} msg - JSON string containing frame analysis results from the backend.
+     */
     function onFrameData(msg) {
+
         if (!state.isTracking) return;
         const results = JSON.parse(msg);
         state.lastFrameResults = results;
@@ -320,7 +400,12 @@ document.addEventListener('DOMContentLoaded', () => {
         updateActiveCharts();
     }
 
+
+    /**
+     * Continuously renders bounding boxes, names, and emotion/confidence labels.
+     */
     function drawLoop() {
+
         dom.overlayCtx.clearRect(0, 0, dom.overlayCanvas.width, dom.overlayCanvas.height);
         if (state.isTracking && state.lastFrameResults.length > 0) {
             state.lastFrameResults.forEach(p => {
@@ -345,7 +430,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------
     // F. Charting, Summary & Participant UI
     // ---------------------------------------------------
+
+    /**
+     * Adds the buttons for selecting detected persons for each ID
+     * and the average button to the html document.
+     * Updates when two persons are being merged.
+     */
     function renderParticipantSelectors() {
+
         ['bar', 'ts', 'attn'].forEach(key => {
             const container = dom.participantSelectors[key];
             container.innerHTML = '';
@@ -391,7 +483,22 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+
+    /**
+     * Handles click interactions on a participant selector button.
+     *
+     * - If "average" is clicked, selects the average view and updates charts.
+     * - If merge mode is active, toggles participant selection for merging.
+     * - On double-click, replaces the button with an input to rename the participant.
+     * - On single-click, selects the participant and updates charts.
+     *
+     * @param {MouseEvent} event - The click event object.
+     * @param {string} id - The participant ID ("average" for group average).
+     * @param {string} name - The current participant name.
+     * @param {HTMLElement} btnElement - The button element clicked.
+     */
     function handleParticipantClick(event, id, name, btnElement) {
+
         if (id === 'average') {
             state.selectedParticipantId = id;
             if (state.isMergeMode) toggleMergeMode();
@@ -423,14 +530,23 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             input.addEventListener('blur', saveName);
             input.addEventListener('keydown', e => e.key === 'Enter' && input.blur());
-        } else { // Single-click to select
+        } else {
+            // Single-click to select
             state.selectedParticipantId = id;
             renderParticipantSelectors();
             updateActiveCharts();
         }
     }
 
+
+    /**
+     * Renders the session summary view with charts and narrative descriptions
+     * based on summary data received from the backend.
+     *
+     * @param {string} summaryMsg - JSON string containing summary statistics for each participant.
+     */
     function renderSummary(summaryMsg) {
+
         const summaryData = JSON.parse(summaryMsg);
         if (Object.keys(summaryData).length === 0) return;
 
@@ -457,9 +573,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+
+    /**
+     * Updates the emotion and attention charts based on the selected participant.
+     * Supports both "average" view and individual participant view.
+     * Calculates time-synced averages for group view and updates chart components.
+     */
     function updateActiveCharts() {
+
         let emotionHistory = [];
-        let attentionHistory = []; // Initialized as empty
+        let attentionHistory = [];
 
         if (state.selectedParticipantId === 'average') {
             const allEmotionHistory = Object.values(state.participants).flatMap(p => p.history);
@@ -521,6 +644,11 @@ document.addEventListener('DOMContentLoaded', () => {
         attentionChart.update(attentionHistory, FRAME_SEND_INTERVAL_MS / 2);
     }
 
+
+    /**
+     * Creates and attaches video playback controls for the current video source
+     * and wires them to update based on video events.
+     */
     function createVideoControls() {
         const controlsContainer = document.createElement('div');
         controlsContainer.id = 'video-controls';
@@ -552,6 +680,16 @@ document.addEventListener('DOMContentLoaded', () => {
         updateVideoPlayerUI(video, playPauseBtn, seekBar, timeDisplay);
     }
 
+
+    /**
+     * Updates the state of the custom video player controls to match the current
+     * playback position and state.
+     *
+     * @param {HTMLVideoElement} video - The video element being controlled.
+     * @param {HTMLButtonElement} playPauseBtn - The play/pause button element.
+     * @param {HTMLInputElement} seekBar - The range input representing playback position.
+     * @param {HTMLDivElement} timeDisplay - The element displaying current and total time.
+     */
     function updateVideoPlayerUI(video, playPauseBtn, seekBar, timeDisplay) {
         const formatTime = (s) => new Date(1000 * s).toISOString().substr(14, 5);
         seekBar.value = (video.currentTime / video.duration) * 100 || 0;
