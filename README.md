@@ -3,8 +3,8 @@
 ## About
 
 This project was trained on [kaggle's FER 2013 dataset](https://www.kaggle.com/datasets/msambare/fer2013) and built using [PyTorch](https://pytorch.org) version 2.7.1, [D3](https://d3js.org) version 7.9.0,
-[opencv-python](https://pypi.org/project/opencv-python/) version 4.12.0.88 and [face-recognition](https://pypi.org/project/face-recognition/) version 1.3.0.  
-The system detects emotions using PyTorch and visualizes them using D3. Additionally, the attention level is estimated using opencv. face-recognition is used to rename and memorize face's during multiple runs per program execution.
+[OpenCV](https://opencv.org/) version 4.12.0.88 and [dlib's face-recognition](https://dlib.net/) version 1.3.0.  
+The system detects emotions using PyTorch and visualizes them using D3. Additionally, the attention level is estimated using OpenCV. dlib's face-recognition is used to rename and memorize faces during multiple runs per program execution.
 
 ## Getting Started
 
