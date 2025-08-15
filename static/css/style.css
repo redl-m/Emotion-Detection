@@ -310,6 +310,43 @@ button.track-button.active {
     padding: 0.2rem;
 }
 
+.llm-slider-container {
+    display: flex;
+    position: relative;
+    background-color: #2a2a30;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    width: 400px; /* adjust as needed */
+    cursor: pointer;
+}
+
+.llm-slider-option {
+    flex: 1;
+    text-align: center;
+    padding: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-color);
+    z-index: 1;
+    transition: color 0.3s ease;
+}
+
+.llm-slider-option.selected {
+    color: white;
+}
+
+.llm-slider-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 50%; /* two options → 50% width */
+    height: 100%;
+    background-color: var(--accent-color);
+    border-radius: 8px;
+    transition: left 0.3s ease;
+    z-index: 0;
+}
+
 /* ---------------------------------------------------
  * Charts & Legend
  * --------------------------------------------------- */

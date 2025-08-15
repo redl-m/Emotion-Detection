@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const FRAME_SEND_INTERVAL_MS = 200; // ~5 FPS
     const MAX_TIMESERIES_POINTS = 100;
     const poseEstimator = new HeadPoseEstimator();
+    let useLLM;
 
     let state = {
         isTracking: false,
@@ -256,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             clearInterval(state.sendIntervalId);
             state.sendIntervalId = null;
-            socket.emit('get_summary');
+            socket.emit("get_summary", { use_llm: useLLM });
         }
     }
 
@@ -482,6 +483,40 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+
+    /**
+     * Sets up the heuristic and LLM slider.
+     * @param onChangeCallback Defines the behavior on switch.
+     */
+    function setupSummaryMethodSlider(onChangeCallback) {
+    const options = document.querySelectorAll(".llm-slider-option");
+    const indicator = document.querySelector(".llm-slider-indicator");
+
+    options.forEach((opt, index) => {
+        opt.addEventListener("click", () => {
+            // Remove old selection
+            options.forEach(o => o.classList.remove("selected"));
+            opt.classList.add("selected");
+
+            // Move indicator
+            indicator.style.left = `${index * 50}%`;
+
+            // Call the callback with selected mode (0 or 1)
+            if (typeof onChangeCallback === "function") {
+                onChangeCallback(parseInt(opt.getAttribute("data-mode")));
+            }
+        });
+    });
+
+    // Set initial indicator position
+    indicator.style.left = "0%";
+}
+
+setupSummaryMethodSlider(mode => {
+    useLLM = mode; // mode = 1 --> useLLM = true
+});
+
 
 
     /**

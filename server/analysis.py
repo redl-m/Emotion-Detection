@@ -3,6 +3,9 @@ import cv2
 import torch
 import face_recognition
 from collections import OrderedDict, Counter
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+import time
+
 
 class FaceReIDTracker:
     """
@@ -71,13 +74,118 @@ class FaceReIDTracker:
         return tracked_persons
 
 
-def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels):
+# ---------------- LOCAL LLM SETUP ----------------
+class LocalLLM:
+    """Local LLM wrapper with optional 4-bit quantization (bitsandbytes)."""
+    def __init__(
+        self,
+        model_name="tiiuae/falcon-7b-instruct", # Modifiable, see https://huggingface.co/models
+        device=None,
+        quantize_4bit=True,
+        trust_remote_code=False
+    ):
+        self.model_name = model_name
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"INFO: Initializing LocalLLM on device: {self.device}")
+
+        # Tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            use_fast=True,
+            trust_remote_code=trust_remote_code
+        )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        quantization_config = None
+        model_kwargs = {
+            "device_map": "auto",
+            "low_cpu_mem_usage": True,
+            "trust_remote_code": trust_remote_code,
+        }
+
+        if self.device == "cuda":
+            if quantize_4bit:
+                print("INFO: Applying 4-bit quantization for CUDA device.")
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.float16,
+                )
+                model_kwargs["quantization_config"] = quantization_config
+            else:
+                model_kwargs["torch_dtype"] = torch.float16 # float16 for better performance on GPU if not quantizing
+        else:
+            print("WARNING: CPU device detected. Quantization is disabled. Model will be loaded in full precision (float32).")
+
+        print(f"INFO: Loading model '{model_name}'... This may take a significant amount of time and memory.")
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_name
+        )
+        print("INFO: Model loaded successfully.")
+
+        # Sensible short defaults for fast, concise summaries
+        self.generation_defaults = dict(
+            max_new_tokens=40,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.95,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+            use_cache=True,
+        )
+
+    def generate_narrative(self, prompt, **gen_overrides):
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        gen_cfg = {**self.generation_defaults, **gen_overrides}
+        with torch.inference_mode():
+            output_ids = self.model.generate(**inputs, **gen_cfg)
+
+        gen_tokens = output_ids[0, inputs["input_ids"].shape[-1]:]
+        text = self.tokenizer.decode(gen_tokens, skip_special_tokens=True)
+        print("INFO: Narrative generated successfully.")
+        return text.strip()
+
+
+def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels, llm=None, engagement_sequence=None):
     """
-    Generates an LLM-like narrative of emotional evolution. TODO: rework, also use attention
+
+    :param person_name:
+    :param emotions_sequence:
+    :param emotion_labels:
+    :param llm:
+    :param engagement_sequence:
+    :return:
     """
-    if not emotions_sequence or len(emotions_sequence) < 10:
+    if not emotions_sequence or len(emotions_sequence) < 5:
         return f"Not enough emotional data for {person_name} to generate a meaningful summary."
 
+    avg_engagement = None
+    if engagement_sequence:
+        valid_engagements = [e for e in engagement_sequence if e is not None]
+        if valid_engagements:
+            avg_engagement = round(sum(valid_engagements) / len(valid_engagements), 2)
+
+    # ---------- LLM version ----------
+    if llm:
+        print(f"INFO: Generating summary for {person_name} with LLM.")
+        timeline = ", ".join([emotion_labels[e] for e in emotions_sequence])
+
+        engagement_info = ""
+        if avg_engagement is not None:
+            engagement_info = f"\nThe average engagement score was {avg_engagement} on a scale from 0 to 1."
+
+        prompt = (
+            f"Write a concise, human-readable summary of {person_name}'s emotional and attentional (engagement) development "
+            f"over time based on the following emotional sequence: {timeline}.{engagement_info} "
+            f"You must not quote the raw sequence itself, but summarize the overall trend."
+            f"Summary:"
+        )
+        print("DEBUG: Prompt for LLM: " + prompt)
+        return llm.generate_narrative(prompt, max_new_tokens=40, temperature=0.2, top_p=0.9)
+
+    # ---------- Heuristic fallback ----------
     counts = Counter(emotions_sequence)
     dominant_mood = emotion_labels[counts.most_common(1)[0][0]]
     start_mood = emotion_labels[emotions_sequence[0]]
@@ -87,7 +195,7 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
 
     narrative = f"{person_name} began the session in a state of **{start_mood.lower()}**."
     if num_shifts == 0:
-        narrative += f" They appeared to maintain this feeling consistently throughout."
+        narrative += " They appeared to maintain this feeling consistently throughout."
     else:
         if start_mood != end_mood:
             narrative += f" Their emotional journey was dynamic, concluding with a feeling of **{end_mood.lower()}**."
@@ -96,26 +204,41 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
         narrative += f" The most prevalent emotion observed was **{dominant_mood.lower()}**."
         other_moods = [m for m in unique_emotions if m not in [start_mood, end_mood, dominant_mood]]
         if num_shifts > 2 and other_moods:
-            narrative += f" Moments of **{other_moods[0].lower()}** were also noted during the interaction."
+            narrative += f" Moments of **{other_moods[0].lower()}** were also noted."
+
+    if avg_engagement is not None:
+        if avg_engagement > 0.7:
+            narrative += f" Engagement was generally **high** ({avg_engagement})."
+        elif avg_engagement > 0.4:
+            narrative += f" Engagement was **moderate** ({avg_engagement})."
+        else:
+            narrative += f" Engagement appeared **low** ({avg_engagement})."
+
     return narrative.strip()
+
 
 
 def analyze_frame(frame, emotion_model, tracker, tracking_data, head_pose_data):
     """
-    Processes a single frame: tracks faces, classifies emotions, and integrates engagement.
+
+    :param frame:
+    :param emotion_model:
+    :param tracker:
+    :param tracking_data:
+    :param head_pose_data:
+    :return:
     """
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     tracked_persons = tracker.update(rgb_frame)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
     pose_by_index = {int(k): v for k, v in head_pose_data.items()}
 
     results = []
-    # Iterate through tracked_persons in the order they were detected.
     for i, (person_id, data) in enumerate(tracked_persons.items()):
         (x, y, w, h) = data['bbox']
         roi_gray = gray[y:y + h, x:x + w]
-        if roi_gray.size == 0: continue
+        if roi_gray.size == 0:
+            continue
 
         roi_resized = cv2.resize(roi_gray, (48, 48))
         tensor = torch.from_numpy(roi_resized).to(torch.float32)
@@ -127,12 +250,10 @@ def analyze_frame(frame, emotion_model, tracker, tracking_data, head_pose_data):
             probs = torch.softmax(logits, dim=1).squeeze()
             confidence, predicted_class = torch.max(probs, 0)
 
-            # Update session tracking data
             if person_id not in tracking_data:
                 tracking_data[person_id] = {'emotions': [], 'engagement': []}
             tracking_data[person_id]['emotions'].append(predicted_class.item())
 
-            # Get engagement data for this person based on detection order
             engagement = None
             if i in pose_by_index:
                 engagement = pose_by_index[i].get('engagement')
@@ -150,11 +271,20 @@ def analyze_frame(frame, emotion_model, tracker, tracking_data, head_pose_data):
     return results
 
 
-def generate_summary_payload(tracking_data, tracker, emotion_labels):
-    """Creates the summary dictionary to be sent to the client."""
+def generate_summary_payload(tracking_data, tracker, emotion_labels, llm=None):
+    """
+
+    :param tracking_data:
+    :param tracker:
+    :param emotion_labels:
+    :param llm:
+    :return:
+    """
+
     summary_payload = {}
     for p_id, data in tracking_data.items():
-        if not data.get('emotions'): continue
+        if not data.get('emotions'):
+            continue
 
         meta = next((m for m in tracker.known_face_metadata if m['id'] == p_id), None)
         person_name = meta['name'] if meta else f"Person {p_id}"
@@ -162,7 +292,25 @@ def generate_summary_payload(tracking_data, tracker, emotion_labels):
         emotions = data['emotions']
         total = len(emotions)
         distribution = [emotions.count(i) / total for i in range(len(emotion_labels))]
-        narrative = generate_ai_narrative_summary(person_name, emotions, emotion_labels)
+
+        engagements = [e for e in data.get('engagement', []) if e is not None]
+        avg_engagement = round(sum(engagements) / len(engagements), 2) if engagements else None
+
+        start_time = time.time()
+
+        narrative = generate_ai_narrative_summary(
+            person_name,
+            emotions,
+            emotion_labels,
+            llm=llm,
+            engagement_sequence=engagements
+        )
+
+        end_time = time.time()
+
+        total_time = end_time - start_time
+
+        print(f"INFO: LLM's processing time: {total_time:.2f} seconds.")
 
         engagements = [e for e in data.get('engagement', []) if e is not None]
         avg_engagement = round(sum(engagements) / len(engagements), 2) if engagements else None
