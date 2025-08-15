@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import cv2
 import torch
@@ -5,7 +6,8 @@ import face_recognition
 from collections import OrderedDict, Counter
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 import time
-
+import requests
+import json
 
 class FaceReIDTracker:
     """
@@ -72,6 +74,65 @@ class FaceReIDTracker:
             bbox = (left, top, right - left, bottom - top)
             tracked_persons[metadata['id']] = {'bbox': bbox, 'name': metadata['name']}
         return tracked_persons
+
+
+# ---------------- REMOTE LLM (API-BASED) SETUP ----------------
+class RemoteLLM:
+    """
+    Wrapper for a remote LLM API endpoint.
+    """
+
+    def __init__(self, api_key, api_url="https://api.openai.com/v1/chat/completions", model="gpt-3.5-turbo"):
+        if not api_key:
+            raise ValueError("API key is required for RemoteLLM.")
+        self.api_key = api_key
+        self.api_url = api_url
+        self.model = model
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+    def generate_narrative(self, prompt, **gen_overrides):
+        """
+        Generates a narrative by calling the remote API.
+        This example is tailored for OpenAI's Chat Completions API.
+        """
+        print(f"INFO: Calling remote LLM API ({self.model})...")
+
+        # Construct the payload according to your API's documentation.
+        # This is an example for OpenAI.
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant providing concise summaries."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": gen_overrides.get("max_new_tokens", 60),
+            "temperature": gen_overrides.get("temperature", 0.5),
+        }
+
+        try:
+            response = requests.post(self.api_url, headers=self.headers, data=json.dumps(payload), timeout=20)
+            response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
+
+            # Parse the response to extract the generated text.
+            # This will vary greatly between different APIs.
+            # For OpenAI Chat API:
+            result_text = response.json()['choices'][0]['message']['content']
+
+            print("INFO: Narrative generated successfully from API.")
+            return result_text.strip()
+
+        except requests.exceptions.RequestException as e:
+            error_message = f"API request failed: {e}"
+            print(f"ERROR: {error_message}", file=sys.stderr)
+            return f"Error: Could not generate summary due to an API connection issue."
+        except (KeyError, IndexError) as e:
+            error_message = f"Failed to parse API response: {e}. Response: {response.text}"
+            print(f"ERROR: {error_message}", file=sys.stderr)
+            return f"Error: Could not understand the response from the API."
+
 
 
 # ---------------- LOCAL LLM SETUP ----------------

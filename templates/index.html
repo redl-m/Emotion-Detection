@@ -40,12 +40,17 @@
                 <span id="mergeBtnText">Merge Faces</span>
             </button>
             <div id="summaryMethodSelector" class="llm-slider-container">
-                <div class="llm-slider-option selected" data-mode="0">Use heuristic method for Summary</div>
-                <div class="llm-slider-option" data-mode="1">Use LLM for Summary</div>
+                <div class="llm-slider-option selected" data-mode="0">Heuristic Summary</div>
+                <div class="llm-slider-option" data-mode="1">Local LLM Summary</div>
+                <div class="llm-slider-option" data-mode="2">API LLM Summary</div>
                 <div class="llm-slider-indicator"></div>
             </div>
 
-
+            <div id="apiKeyManager" class="api-key-panel"
+                 style="display: none; margin-top: 10px; padding: 10px; border: 1px solid #444; border-radius: 5px;">
+                <p style="margin: 0 0 8px 0;">API Key Status: <strong id="apiKeyStatus">Checking...</strong></p>
+                <button id="changeApiKeyBtn" class="control-button">Set / Change API Key</button>
+            </div>
         </div>
     </header>
 

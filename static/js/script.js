@@ -102,6 +102,11 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('frame_data', onFrameData);
         socket.on('tracking_summary', renderSummary);
         socket.on('merge_notification', onMergeNotification);
+        socket.on('api_key_status_update', onAPIKeyStatusUpdate);
+        socket.on("request_api_key", async () => {
+            await requestAPIKey();
+            socket.emit("get_summary", {use_llm: useLLM});
+        });
     }
 
     // ---------------------------------------------------
@@ -257,7 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             clearInterval(state.sendIntervalId);
             state.sendIntervalId = null;
-            socket.emit("get_summary", { use_llm: useLLM });
+            socket.emit("get_summary", {use_llm: useLLM});
         }
     }
 
@@ -486,37 +491,105 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     /**
-     * Sets up the heuristic and LLM slider.
+     * Sets up the summary method slider with dynamic options.
      * @param onChangeCallback Defines the behavior on switch.
      */
     function setupSummaryMethodSlider(onChangeCallback) {
-    const options = document.querySelectorAll(".llm-slider-option");
-    const indicator = document.querySelector(".llm-slider-indicator");
+        const options = document.querySelectorAll(".llm-slider-option");
+        const indicator = document.querySelector(".llm-slider-indicator");
+        const apiKeyManager = document.getElementById('apiKeyManager');
 
-    options.forEach((opt, index) => {
-        opt.addEventListener("click", () => {
-            // Remove old selection
-            options.forEach(o => o.classList.remove("selected"));
-            opt.classList.add("selected");
+        if (!options.length || !indicator || !apiKeyManager) {
+            console.error("Slider elements not found!");
+            return;
+        }
 
-            // Move indicator
-            indicator.style.left = `${index * 50}%`;
+        const numOptions = options.length;
+        const optionWidthPercent = 100 / numOptions;
 
-            // Call the callback with selected mode (0 or 1)
-            if (typeof onChangeCallback === "function") {
-                onChangeCallback(parseInt(opt.getAttribute("data-mode")));
-            }
+        indicator.style.width = `${optionWidthPercent}%`;
+
+        options.forEach((opt, index) => {
+            opt.addEventListener("click", () => {
+                const mode = opt.getAttribute("data-mode");
+
+                options.forEach(o => o.classList.remove("selected"));
+                opt.classList.add("selected");
+
+                indicator.style.left = `${index * optionWidthPercent}%`;
+
+                if (mode === '2') {
+                    apiKeyManager.style.display = 'block';
+                    socket.emit('get_api_key_status');
+                } else {
+                    apiKeyManager.style.display = 'none';
+                }
+
+                if (typeof onChangeCallback === "function") {
+                    onChangeCallback(parseInt(mode));
+                }
+            });
         });
+
+        if (options[0]) {
+            options[0].classList.add("selected");
+            indicator.style.left = "0%";
+        }
+    }
+
+
+    /**
+     * Sets up the summary method slider.
+     */
+    setupSummaryMethodSlider(newMode => {
+        useLLM = newMode;
     });
 
-    // Set initial indicator position
-    indicator.style.left = "0%";
-}
+    // Change API Button
+    const changeApiKeyBtn = document.getElementById('changeApiKeyBtn');
 
-setupSummaryMethodSlider(mode => {
-    useLLM = mode; // mode = 1 --> useLLM = true
-});
+    if (changeApiKeyBtn) {
+        changeApiKeyBtn.addEventListener('click', () => {
+            requestAPIKey();
+        });
+    } else {
+        console.error('Button with ID "changeApiKeyBtn" was not found.');
+    }
 
+
+    /**
+     * Updates the status of the API key based on user input.
+     * @param data The data emitted from the socket.
+     */
+    function onAPIKeyStatusUpdate(data) {
+
+        const statusElem = document.getElementById("apiKeyStatus");
+
+        if (!statusElem) return;
+
+        // Decide what to display based on the emitted data
+        if (data.is_set) {
+            statusElem.textContent = "Present";
+        } else {
+            statusElem.textContent = "Not Present";
+        }
+    }
+
+
+    /**
+     * Request the user to prompt an API key.
+     */
+    function requestAPIKey() {
+        const newKey = prompt(
+            "Please enter your LLM API Key. To clear the key, leave this blank and press OK.",
+            "" // Default value in the prompt
+        );
+
+        // Only proceed if "Ok" is clicked
+        if (newKey !== null) {
+            socket.emit('set_api_key', {key: newKey}); // New key is set to backend
+        }
+    }
 
 
     /**

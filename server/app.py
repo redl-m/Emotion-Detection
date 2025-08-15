@@ -15,15 +15,21 @@ sys.path.insert(0, project_root)
 
 # --- Local Imports ---
 from model.model import EmotionCNN
-from server.analysis import FaceReIDTracker, LocalLLM, analyze_frame, generate_summary_payload
+from server.analysis import FaceReIDTracker, LocalLLM, RemoteLLM, analyze_frame, generate_summary_payload
 
 # --- Global State for the Worker Thread ---
 frame_lock = threading.Lock()
 latest_frame_data = None
 
-# --- Global LLM instance (lazy loaded) ---
+# --- Global LLM instances (lazy loaded) ---
 local_llm = None
-llm_lock = threading.Lock()  # Lock to prevent multiple threads from loading the model at once
+remote_llm = None
+llm_lock = threading.Lock()  # Lock to prevent multiple threads from loading models at once
+
+# --- API Key Storage ---
+# This will be stored in memory for the lifetime of the server.
+# Set it here if you want a default key.
+LLM_API_KEY = None
 
 
 def create_app():
@@ -43,8 +49,6 @@ def create_app():
     # Initialize Tracker and session data
     tracker = FaceReIDTracker(tolerance=0.55)
     tracking_data = {}
-
-
 
     emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral']
 
@@ -92,6 +96,32 @@ def create_app():
             app.analysis_thread_started = True
             print("INFO: Client connected, background worker started.")
 
+    # --- API KEY MANAGEMENT HANDLERS ---
+    @socketio.on('get_api_key_status')
+    def on_get_api_key_status():
+        """Client is asking if the API key is set."""
+        global LLM_API_KEY
+        print("DEBUG: status: " + str(LLM_API_KEY is not None and LLM_API_KEY != ""))
+        emit('api_key_status_update', {'is_set': LLM_API_KEY is not None and LLM_API_KEY != ""})
+
+    @socketio.on('set_api_key')
+    def on_set_api_key(data):
+        """Client is setting a new API key."""
+        global LLM_API_KEY, remote_llm
+        new_key = data.get('key')
+
+        if new_key and new_key.strip():
+            LLM_API_KEY = new_key
+            print("INFO: API Key has been set by the user.")
+            # Invalidate the old remote_llm instance so it gets recreated with the new key
+            with llm_lock:
+                remote_llm = None
+        else:
+            LLM_API_KEY = None
+            print("INFO: API Key has been cleared.")
+
+        emit('api_key_status_update', {'is_set': LLM_API_KEY is not None})
+
     @socketio.on('client_ready')
     def on_client_ready():
         emit('known_faces_update', tracker.known_face_metadata)
@@ -129,43 +159,63 @@ def create_app():
 
     @socketio.on('get_summary')
     def on_get_summary(data):
-        global local_llm
+        global local_llm, remote_llm, LLM_API_KEY
 
-        use_llm = data.get("use_llm")
+        use_llm_mode = int(data.get("use_llm", 0))  # Default to 0 (heuristic)
+        active_llm = None  # This will hold the llm instance to be used
 
-        print("INFO: LLM used: " + str(use_llm))
+        print(f"INFO: Summary requested with mode: {use_llm_mode}")
 
-        local_llm = None # default
+        # --- LLM INSTANCE SELECTION AND LAZY LOADING ---
+        with llm_lock:
+            if use_llm_mode == 1:  # Use Local LLM
+                if local_llm is None:
+                    print("INFO: Initializing and loading the local LLM...")
+                    emit('summary_status', {'status': 'loading_model', 'message': 'Local AI model is loading...'})
+                    try:
+                        local_llm = LocalLLM()
+                        print("INFO: Local LLM loaded successfully.")
+                    except Exception as e:
+                        print(f"FATAL: Failed to load local LLM: {e}", file=sys.stderr)
+                        emit('summary_status', {'status': 'error', 'message': f'Failed to load Local AI model: {e}'})
+                        return
+                active_llm = local_llm
 
-        # --- LAZY LOADING THE LLM ---
-        with llm_lock: # Ensure the model is only loaded once if multiple requests arrive simultaneously
-            if local_llm is None and use_llm == 1:
-                print("INFO: First summary request. Initializing and loading the local LLM...")
+            elif use_llm_mode == 2:  # Use Remote LLM via API
+                if not LLM_API_KEY:
+                    print("WARN: API key requested, but none is set. Prompting user.")
+                    emit('request_api_key') # Requesting API key from frontend
+                    emit('summary_status',
+                         {'status': 'error', 'message': 'API Key is not set. Please set the key and try again.'})
+                    return
 
-                emit('summary_status', {'status': 'loading_model',
-                                        'message': 'AI model is loading for the first time. This may take a minute...'})
-                try:
-                    local_llm = LocalLLM(
-                        model_name="tiiuae/falcon-7b-instruct",
-                        quantize_4bit=True
-                    )
-                    print("INFO: Local LLM has been successfully loaded into memory.")
-                except Exception as e:
-                    print(f"FATAL: Failed to load the local LLM: {e}", file=sys.stderr)
-                    emit('summary_status', {'status': 'error', 'message': f'Failed to load AI model: {e}'})
-                    return  # Abort if model fails to load
+                if remote_llm is None:
+                    print("INFO: Initializing remote LLM client with API key...")
+                    try:
+                        # You can customize the URL or model name here if needed
+                        remote_llm = RemoteLLM(api_key=LLM_API_KEY)
+                        print("INFO: Remote LLM client is ready.")
+                    except Exception as e:
+                        print(f"ERROR: Failed to initialize Remote LLM client: {e}", file=sys.stderr)
+                        emit('summary_status', {'status': 'error', 'message': f'Failed to setup API client: {e}'})
+                        return
+                active_llm = remote_llm
+
+        # --- SUMMARY GENERATION ---
+        if use_llm_mode > 0:
+            emit('summary_status', {'status': 'generating', 'message': 'Model loaded. Generating summary...'})
+        else:
+            emit('summary_status', {'status': 'generating', 'message': 'Generating heuristic summary...'})
 
         print("INFO: Generating summary payload...")
-        emit('summary_status', {'status': 'generating', 'message': 'Model loaded. Generating summary...'})
-
         summary_payload = generate_summary_payload(
             tracking_data,
             tracker,
             emotion_labels,
-            llm=local_llm
+            llm=active_llm
         )
         emit('tracking_summary', json.dumps(summary_payload))
-        print("INFO: Summary generated and sent via local LLM.")
+        print("INFO: Summary generated and sent.")
 
     return socketio, app
 
