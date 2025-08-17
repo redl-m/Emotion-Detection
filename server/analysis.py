@@ -16,41 +16,82 @@ class FaceReIDTracker:
     """
 
     def __init__(self, tolerance=0.55):
+        """
+
+        :param tolerance: Maximum distance for a face encoding to be considered a match.
+        Lower values make recognition stricter. Default is 0.55.
+        """
         self.known_face_encodings = []
         self.known_face_metadata = []
         self.next_person_id = 0
         self.tolerance = tolerance
 
     def rename_person(self, person_id, new_name):
+        """
+        Rename a tracked person by updating their metadata.
+        :param person_id: Unique identifier of the person to rename.
+        :param new_name: New display name to assign.
+        :return: bool: True if the person was found and renamed, otherwise False.
+        """
+        person_found = False
         for metadata in self.known_face_metadata:
             if metadata['id'] == person_id:
                 metadata['name'] = new_name
-                return True
-        return False
+                person_found = True
+        return person_found
 
-    def merge_persons(self, source_id, target_id, tracking_data):
-        """ Merges persons also handling the external tracking_data dict. """
+    def merge_persons(self, source_ids, target_id, new_name, tracking_data):
+        """
+        Merges multiple source persons into a target person and updates their name.
+        Also handles the external tracking_data dictionary.
+        :param source_ids: IDs of the persons to merge into the target.
+        :param target_id: ID of the person to retain as the merged identity.
+        :param new_name: New name to assign to the merged identity.
+        :param tracking_data: External dictionary with additional person data.
+        :return: True if merge was successful, False if the target ID does not exist.
+        """
+        # Ensure the target person exists in metadata
         target_meta = next((m for m in self.known_face_metadata if m['id'] == target_id), None)
         if not target_meta:
+            print(f"Error: Target person with ID {target_id} not found.")
             return False
 
-        found_source = False
+        # Process each source person
+        for source_id in source_ids:
+            if source_id == target_id:
+                continue  # Cannot merge a person into themselves
+
+            # Merge tracking data
+            if source_id in tracking_data and target_id in tracking_data:
+                if 'emotions' in tracking_data[source_id]:
+                    tracking_data[target_id].setdefault('emotions', []).extend(tracking_data[source_id]['emotions'])
+                if 'engagement' in tracking_data[source_id]:
+                    tracking_data[target_id].setdefault('engagement', []).extend(tracking_data[source_id]['engagement'])
+                del tracking_data[source_id]
+
+            # Update metadata ID for all source entries
+            for source_meta in self.known_face_metadata:
+                if source_meta['id'] == source_id:
+                    source_meta['id'] = target_id
+
+        # After merging, update the name for all entries that now have the target_id
         for meta in self.known_face_metadata:
-            if meta['id'] == source_id:
-                meta['id'] = target_id
-                meta['name'] = target_meta['name']
-                found_source = True
+            if meta['id'] == target_id:
+                meta['name'] = new_name
 
-        if source_id in tracking_data and target_id in tracking_data:
-            if 'emotions' in tracking_data[source_id]:
-                tracking_data[target_id].setdefault('emotions', []).extend(tracking_data[source_id]['emotions'])
-            if 'engagement' in tracking_data[source_id]:
-                tracking_data[target_id].setdefault('engagement', []).extend(tracking_data[source_id]['engagement'])
-            del tracking_data[source_id]
-
-        return found_source
+        return True
 
     def update(self, rgb_frame):
+        """
+        Detect and track faces in the given frame.
+
+        - Compares detected face encodings against known identities.
+        - Assigns existing IDs if a match is found.
+        - Creates a new identity when an unknown face is detected.
+        :param rgb_frame: Image frame in RGB format.
+        :return: Mapping of tracked person IDs to dictionaries with bounding box
+                 of the face and display name of the tracked person.
+        """
         face_locations = face_recognition.face_locations(rgb_frame)
         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
         tracked_persons = OrderedDict()
@@ -67,7 +108,7 @@ class FaceReIDTracker:
             if metadata is None:
                 person_id = self.next_person_id
                 self.next_person_id += 1
-                new_metadata = {'id': person_id, 'name': f"Person {person_id}"}
+                new_metadata = {'id': person_id, 'name': f"P{person_id}"}
                 self.known_face_encodings.append(face_encoding)
                 self.known_face_metadata.append(new_metadata)
                 metadata = new_metadata
@@ -386,7 +427,8 @@ def generate_summary_payload(tracking_data, tracker, emotion_labels, llm=None):
 
         total_time = end_time - start_time
 
-        print(f"INFO: LLM's processing time: {total_time:.2f} seconds.")
+        if llm is not None:
+            print(f"INFO: LLM's processing time: {total_time:.2f} seconds.")
 
         engagements = [e for e in data.get('engagement', []) if e is not None]
         avg_engagement = round(sum(engagements) / len(engagements), 2) if engagements else None

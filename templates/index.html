@@ -168,6 +168,26 @@
                 </div>
             </div>
         </aside>
+
+        <div id="mergeModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Merge Faces</h2>
+            <button id="closeMergeModalBtn" class="close-button">&times;</button>
+        </div>
+        <p>Select multiple people to merge. The first person selected (highlighted in green) will be the target that others are merged into.</p>
+        <div id="mergeParticipantList" class="participant-grid">
+            </div>
+        <div id="mergeNamePrompt" class="name-prompt" style="display: none;">
+            <label for="newPersonName">Multiple people have different names. Please enter a name for the merged person:</label>
+            <input type="text" id="newPersonName" name="newPersonName" placeholder="Enter new name...">
+        </div>
+        <div class="modal-actions">
+            <button id="cancelMergeBtn" class="modal-button-secondary">Cancel</button>
+            <button id="confirmMergeBtn" class="modal-button-primary" disabled>Confirm Merge</button>
+        </div>
+    </div>
+</div>
     </main>
 </div>
 

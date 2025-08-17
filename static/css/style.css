@@ -544,7 +544,178 @@ path.line-ts {
 
 
 /* ==========================================================================
-   5. RESPONSIVE DESIGN
+   5. MERGE MODAL
+   ========================================================================== */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.65);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--panel-bg);
+    color: var(--text-color);
+    padding: 1.5rem;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+    width: 90%;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.75rem;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.close-button {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.2s ease;
+}
+.close-button:hover {
+    color: var(--text-color);
+}
+
+.participant-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 0.75rem;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: var(--input-bg);
+}
+
+.participant-item {
+    padding: 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s ease-in-out;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+.participant-item:hover {
+    border-color: var(--accent-color);
+    color: var(--text-color);
+}
+
+.participant-item.selected {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+}
+
+.participant-item.target {
+    background-color: var(--status-green);
+    border-color: var(--status-green);
+    color: white;
+}
+
+.color-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.name-prompt {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.name-prompt input {
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--input-bg);
+    color: var(--text-color);
+    font-size: 0.9rem;
+}
+.name-prompt input:focus {
+    border-color: var(--accent-color);
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 25%, transparent);
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.modal-button-primary,
+.modal-button-secondary {
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.9rem;
+    transition: background-color 0.2s ease;
+    border: 1px solid var(--border-color);
+}
+
+.modal-button-primary {
+    background-color: var(--accent-color);
+    color: #fff;
+    border-color: var(--accent-color);
+}
+.modal-button-primary:hover:not(:disabled) {
+    background-color: var(--accent-hover);
+}
+.modal-button-primary:disabled {
+    background-color: var(--disabled-bg);
+    border-color: var(--disabled-bg);
+    color: var(--disabled-color);
+    cursor: not-allowed;
+}
+
+.modal-button-secondary {
+    background-color: var(--button-bg);
+    color: var(--text-color);
+}
+.modal-button-secondary:hover {
+    background-color: var(--button-hover-bg);
+}
+
+
+/* ==========================================================================
+   6. RESPONSIVE DESIGN
    ========================================================================== */
 @media (max-width: 1280px) {
     main {

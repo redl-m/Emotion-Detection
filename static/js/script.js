@@ -18,8 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
         participants: {}, // { id: { color, history: [...] }}
         participantNames: {}, // { id: "Name" }, synced with server
         selectedParticipantId: 'average',
-        isMergeMode: false,
-        mergeSelection: [], // Stores [source_id, target_id] for merging
+        isMergeMode: false, // Controls the modal visibility
+        mergeSelection: [], // Stores selected IDs for merging. First element is the target.
     };
 
     // ---------------------------------------------------
@@ -37,6 +37,13 @@ document.addEventListener('DOMContentLoaded', () => {
         trackBtn: document.getElementById('trackBtn'),
         trackBtnText: document.getElementById('trackBtnText'),
         mergeBtn: document.getElementById('mergeBtn'),
+        mergeModal: document.getElementById('mergeModal'),
+        closeMergeModalBtn: document.getElementById('closeMergeModalBtn'),
+        cancelMergeBtn: document.getElementById('cancelMergeBtn'),
+        confirmMergeBtn: document.getElementById('confirmMergeBtn'),
+        mergeParticipantList: document.getElementById('mergeParticipantList'),
+        mergeNamePrompt: document.getElementById('mergeNamePrompt'),
+        newPersonNameInput: document.getElementById('newPersonName'),
         controlsBottom: document.querySelector('.controls-bottom'),
         analysisSection: document.getElementById('analysis-section'),
         participantSelectors: {
@@ -117,8 +124,11 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.uploadInput.addEventListener('change', handleFileUpload);
         dom.liveBtn.addEventListener('click', handleLiveFeed);
         dom.trackBtn.addEventListener('click', toggleTracking);
-        dom.mergeBtn.addEventListener('click', toggleMergeMode);
         dom.placeholder.addEventListener('click', () => dom.uploadInput.click());
+        dom.mergeBtn.addEventListener('click', openMergeModal);
+        dom.closeMergeModalBtn.addEventListener('click', closeMergeModal);
+        dom.cancelMergeBtn.addEventListener('click', closeMergeModal);
+        dom.confirmMergeBtn.addEventListener('click', handleConfirmMerge);
 
         setApiKeyBtn.addEventListener('click', () => {
             const key = apiKeyInput.value;
@@ -303,7 +313,6 @@ document.addEventListener('DOMContentLoaded', () => {
         state.isTracking = !state.isTracking;
         dom.trackBtn.classList.toggle('active', state.isTracking);
         dom.trackBtnText.textContent = state.isTracking ? 'Stop & Summarize' : 'Start Tracking';
-        if (state.isMergeMode) toggleMergeMode(); // Exit merge mode if tracking is stopped
 
         if (state.isTracking) {
             // Clear history for all existing participants but keep their names/IDs
@@ -353,15 +362,162 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     /**
-     * Toggles the merge mode to merge two persons into one.
+     * Opens the merge faces modal window.
      */
-    function toggleMergeMode() {
+    function openMergeModal() {
 
-        state.isMergeMode = !state.isMergeMode;
-        state.mergeSelection = []; // Clear selection on toggle
-        dom.mergeBtn.classList.toggle('active', state.isMergeMode);
-        renderParticipantSelectors(); // Re-render to show merge UI hints
+        state.isMergeMode = true;
+        state.mergeSelection = [];
+        dom.mergeModal.style.display = 'flex';
+        dom.mergeBtn.classList.add('active');
+        renderMergeModalContent();
     }
+
+
+    /**
+     * Closes the merge faces modal window and resets state.
+     */
+    function closeMergeModal() {
+
+        state.isMergeMode = false;
+        state.mergeSelection = [];
+        dom.mergeModal.style.display = 'none';
+        dom.mergeBtn.classList.remove('active');
+        // Clean up just in case
+        dom.mergeNamePrompt.style.display = 'none';
+        dom.newPersonNameInput.value = '';
+    }
+
+
+    /**
+     * Renders the content of the merge modal, showing all available participants.
+     */
+    function renderMergeModalContent() {
+
+        const container = dom.mergeParticipantList;
+        container.innerHTML = '';
+
+        const participantIds = Object.keys(state.participants);
+
+        participantIds.forEach(id => {
+            const name = state.participantNames[id] || `P${id}`;
+            const personDiv = document.createElement('div');
+            personDiv.className = 'participant-item';
+            personDiv.dataset.id = id;
+
+            const colorSwatch = document.createElement('div');
+            colorSwatch.className = 'color-swatch';
+            colorSwatch.style.backgroundColor = state.participants[id].color;
+
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = name;
+
+            personDiv.appendChild(colorSwatch);
+            personDiv.appendChild(nameSpan);
+
+            // Add selection classes
+            if (state.mergeSelection.includes(id)) {
+                personDiv.classList.add('selected');
+                if (state.mergeSelection[0] === id) {
+                    personDiv.classList.add('target'); // Special class for the target
+                }
+            }
+
+            personDiv.addEventListener('click', () => handleMergeParticipantSelect(id));
+            container.appendChild(personDiv);
+        });
+
+        // Update the confirm button state
+        dom.confirmMergeBtn.disabled = state.mergeSelection.length < 2;
+    }
+
+
+    /**
+     * Handles the selection of a participant inside the merge modal.
+     * @param {string} id - The ID of the participant who was clicked.
+     */
+    function handleMergeParticipantSelect(id) {
+
+        const index = state.mergeSelection.indexOf(id);
+        if (index > -1) {
+            state.mergeSelection.splice(index, 1); // Deselect
+        } else {
+            state.mergeSelection.push(id); // Select
+        }
+        // Re-render the modal to update styles
+        renderMergeModalContent();
+    }
+
+
+    /**
+     * Handles the final merge confirmation, including smart naming logic.
+     */
+    function handleConfirmMerge() {
+
+        if (state.mergeSelection.length < 2) return;
+
+        if (dom.mergeNamePrompt.style.display !== 'none') {
+            const newName = dom.newPersonNameInput.value.trim();
+            if (!newName) {
+                alert('Please enter a name for the merged person.');
+                return;
+            }
+            emitMergeEvent(newName);
+            return;
+        }
+
+        const selectedNames = state.mergeSelection.map(id => getParticipantName(id));
+
+        const customNames = selectedNames.filter(name => !/^P\d+$/.test(name));
+        const uniqueCustomNames = new Set(customNames);
+
+        let finalName = '';
+
+        if (uniqueCustomNames.size === 0) {
+            const targetId = state.mergeSelection[0];
+            // The final name is the default name of the target.
+            finalName = getParticipantName(targetId);
+            emitMergeEvent(finalName);
+        } else if (uniqueCustomNames.size === 1) {
+            finalName = uniqueCustomNames.values().next().value;
+            emitMergeEvent(finalName);
+        } else {
+            dom.mergeNamePrompt.style.display = 'block';
+            dom.newPersonNameInput.focus();
+        }
+    }
+
+
+    /**
+     * Emits the merge event to the server after the final name has been determined.
+     * @param {string} finalName - The name to be assigned to the merged person.
+     */
+    function emitMergeEvent(finalName) {
+
+        const target_id = state.mergeSelection[0];
+        const source_ids = state.mergeSelection.slice(1);
+
+        socket.emit('merge_persons', {
+            source_ids: source_ids,
+            target_id: target_id,
+            name: finalName
+        });
+
+        closeMergeModal();
+    }
+
+
+    /**
+     * Gets the display name for a participant.
+     * Returns the custom name if it exists, otherwise generates the default name (e.g., "P1").
+     * @param {string} id The participant's ID.
+     * @returns {string} The display name.
+     */
+    function getParticipantName(id) {
+        // If a custom name is stored in our state, use it. Otherwise, generate the default.
+        return state.participantNames[id] || `P${id}`;
+    }
+
 
     // ---------------------------------------------------
     // E. Real-time Data Handling & Visualization
@@ -369,52 +525,89 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Updates the list of known participants based on metadata from the server.
-     * Creates new participant entries with color and history if they don't exist yet,
-     * and refreshes participant selectors in the UI.
-     * @param {Array<{id: string, name: string}>} metadata - Array of participant metadata objects.
+     * This function synchronizes the local state with the server state, adding new
+     * participants and removing old ones (e.g., after a merge).
+     * @param {Array<{id: number, name: string}>} metadata - Array of participant metadata objects from the server.
      */
     function onKnownFacesUpdate(metadata) {
 
         const newNames = {};
+        const serverIds = new Set();
+
         metadata.forEach(p => {
-            newNames[p.id] = p.name;
-            if (!state.participants[p.id]) {
-                state.participants[p.id] = {
-                    color: D3_COLORS(p.id),
-                    history: []
+            const id = String(p.id);
+            serverIds.add(id);
+
+            // Check if the name received from the server is just a default placeholder (e.g., "P0" for id 0).
+            if (/^P\d+$/.test(p.name) && p.name === `P${id}`) {
+                newNames[id] = undefined; // Do not store the default name as a "real" name.
+            } else {
+                newNames[id] = p.name; // Store the actual custom name.
+            }
+
+            if (!state.participants[id]) {
+                state.participants[id] = {
+                    color: D3_COLORS(id),
+                    history: [],
+                    attentionHistory: []
                 };
             }
         });
+
+        for (const localId in state.participants) {
+            if (!serverIds.has(localId)) {
+                delete state.participants[localId];
+            }
+        }
+
         state.participantNames = newNames;
         renderParticipantSelectors();
+
+        if (state.selectedParticipantId !== 'average' && !state.participants[state.selectedParticipantId]) {
+            state.selectedParticipantId = 'average';
+            renderParticipantSelectors();
+            updateActiveCharts();
+        }
     }
 
 
     /**
-     * Merges two participant records into one, combining their history and attention data.
-     * Deletes the source participant entry after merging and resets merge mode UI state.
-     * @param {{source_id: string, target_id: string}} param0 - Object containing source and target participant IDs.
+     * Merges multiple participant records into one based on server notification.
+     * @param {{source_ids: string[], target_id: string}} data - Object containing source and target IDs.
      */
-    function onMergeNotification({source_id, target_id}) {
+    function onMergeNotification({source_ids, target_id}) {
 
-        if (state.participants[source_id] && state.participants[target_id]) {
-            state.participants[target_id].history.push(...state.participants[source_id].history);
+        if (state.participants[target_id]) {
+            source_ids.forEach(source_id => {
+                if (state.participants[source_id]) {
+                    // Merge history data
+                    state.participants[target_id].history.push(...state.participants[source_id].history);
+
+                    // Merge attention history if it exists
+                    const sourceAttnHistory = state.participants[source_id].attentionHistory || [];
+                    if (!state.participants[target_id].attentionHistory) {
+                        state.participants[target_id].attentionHistory = [];
+                    }
+                    state.participants[target_id].attentionHistory.push(...sourceAttnHistory);
+
+                    // Delete the old source participant
+                    delete state.participants[source_id];
+                }
+            });
+
+            // Sort the merged histories by timestamp to ensure correctness
             state.participants[target_id].history.sort((a, b) => a.timestamp - b.timestamp);
-            const sourceAttnHistory = state.participants[source_id].attentionHistory || [];
-            const targetAttnHistory = state.participants[target_id].attentionHistory || [];
-            if (!state.participants[target_id].attentionHistory) {
-                state.participants[target_id].attentionHistory = [];
+            if (state.participants[target_id].attentionHistory) {
+                state.participants[target_id].attentionHistory.sort((a, b) => a.timestamp - b.timestamp);
             }
-            state.participants[target_id].attentionHistory.push(...sourceAttnHistory);
-            state.participants[target_id].attentionHistory.sort((a, b) => a.timestamp - b.timestamp);
 
-            delete state.participants[source_id];
-            // The `onKnownFacesUpdate` will handle the name state
+            // If a merged person was selected, switch to the target person's view
+            if (source_ids.includes(state.selectedParticipantId)) {
+                state.selectedParticipantId = target_id;
+                updateActiveCharts();
+            }
         }
-        state.isMergeMode = false;
-        state.mergeSelection = [];
-        dom.mergeBtn.classList.remove('active');
-        // The selectors will be re-rendered by the subsequent `known_faces_update` event
+        // Final state consistency will be ensured by the 'known_faces_update' event that follows.
     }
 
 
@@ -473,7 +666,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.lastFrameResults.forEach(p => {
                 const [x, y, w, h] = p.bbox;
                 const color = state.participants[p.id]?.color || '#FFFFFF';
-                const name = state.participantNames[p.id] || `Person ${p.id}`;
+                const name = state.participantNames[p.id] || `P${p.id}`;
                 dom.overlayCtx.strokeStyle = color;
                 dom.overlayCtx.lineWidth = 3;
                 dom.overlayCtx.strokeRect(x, y, w, h);
@@ -494,9 +687,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------
 
     /**
-     * Adds the buttons for selecting detected persons for each ID
-     * and the average button to the html document.
-     * Updates when two persons are being merged.
+     * Renders the participant selector buttons under each chart header.
+     * The merge-specific UI has been removed from this function.
      */
     function renderParticipantSelectors() {
 
@@ -505,43 +697,24 @@ document.addEventListener('DOMContentLoaded', () => {
             container.innerHTML = '';
             const selector = document.createElement('div');
             selector.className = 'participant-selector';
+
             const ids = ['average', ...Object.keys(state.participants)];
+
             ids.forEach(id => {
-                const name = (id === 'average') ? 'Avg' : (state.participantNames[id] || `P${id}`);
+                const name = (id === 'average') ? 'Avg' : getParticipantName(id);
                 const btn = document.createElement('button');
                 btn.className = 'p-btn';
                 btn.textContent = name;
                 btn.dataset.id = id;
-                if (state.selectedParticipantId === id && !state.isMergeMode) btn.classList.add('selected');
-                if (state.isMergeMode && state.mergeSelection.includes(id)) btn.classList.add('merge-selected');
+
+                if (state.selectedParticipantId === id) {
+                    btn.classList.add('selected');
+                }
 
                 btn.addEventListener('click', (e) => handleParticipantClick(e, id, name, btn));
                 selector.appendChild(btn);
             });
             container.appendChild(selector);
-            // Add Merge instruction/button if in merge mode
-            if (state.isMergeMode) {
-                const mergeInstruction = document.createElement('div');
-                mergeInstruction.className = 'merge-controls';
-                if (state.mergeSelection.length < 2) {
-                    mergeInstruction.innerHTML = `<span>Select ${2 - state.mergeSelection.length} more person(s) to merge...</span>`;
-                } else {
-                    const confirmBtn = document.createElement('button');
-                    confirmBtn.className = 'confirm-merge-btn';
-                    confirmBtn.textContent = 'Confirm Merge';
-                    confirmBtn.onclick = () => {
-                        socket.emit('merge_persons', {
-                            source_id: state.mergeSelection[0],
-                            target_id: state.mergeSelection[1]
-                        });
-                    };
-                    const name1 = state.participantNames[state.mergeSelection[0]];
-                    const name2 = state.participantNames[state.mergeSelection[1]];
-                    mergeInstruction.innerHTML = `<span>Merge <strong>${name1}</strong> into <strong>${name2}</strong>?</span>`;
-                    mergeInstruction.appendChild(confirmBtn);
-                }
-                container.appendChild(mergeInstruction);
-            }
         });
     }
 
@@ -551,6 +724,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param onChangeCallback Defines the behavior on switch.
      */
     function setupSummaryMethodSlider(onChangeCallback) {
+
         const options = document.querySelectorAll(".llm-slider-option");
         const indicator = document.querySelector(".llm-slider-indicator");
 
@@ -613,23 +787,16 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function handleParticipantClick(event, id, name, btnElement) {
 
+        if (state.isMergeMode) return;
+
         if (id === 'average') {
             state.selectedParticipantId = id;
-            if (state.isMergeMode) toggleMergeMode();
             renderParticipantSelectors();
             updateActiveCharts();
             return;
         }
 
-        if (state.isMergeMode) {
-            const index = state.mergeSelection.indexOf(id);
-            if (index > -1) {
-                state.mergeSelection.splice(index, 1); // Deselect
-            } else if (state.mergeSelection.length < 2) {
-                state.mergeSelection.push(id); // Select
-            }
-            renderParticipantSelectors();
-        } else if (event.detail === 2) { // Double-click to rename
+        if (event.detail === 2) { // Double-click to rename
             const input = document.createElement('input');
             input.type = 'text';
             input.value = name;
@@ -637,15 +804,20 @@ document.addEventListener('DOMContentLoaded', () => {
             btnElement.replaceWith(input);
             input.focus();
             input.select();
+
             const saveName = () => {
-                const newName = input.value.trim() || `Person ${id}`;
-                socket.emit('rename_person', {id: parseInt(id), name: newName});
-                // Server will broadcast 'known_faces_update' to confirm
+                const newName = input.value.trim() || `P${id}`;
+                socket.emit('rename_person', {id: parseInt(id, 10), name: newName});
             };
+
             input.addEventListener('blur', saveName);
-            input.addEventListener('keydown', e => e.key === 'Enter' && input.blur());
-        } else {
-            // Single-click to select
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') input.blur();
+                if (e.key === 'Escape') {
+                    input.replaceWith(btnElement);
+                }
+            });
+        } else { // Single-click to select
             state.selectedParticipantId = id;
             renderParticipantSelectors();
             updateActiveCharts();
@@ -764,6 +936,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * and wires them to update based on video events.
      */
     function createVideoControls() {
+
         const controlsContainer = document.createElement('div');
         controlsContainer.id = 'video-controls';
 
@@ -805,6 +978,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {HTMLDivElement} timeDisplay - The element displaying current and total time.
      */
     function updateVideoPlayerUI(video, playPauseBtn, seekBar, timeDisplay) {
+
         const formatTime = (s) => new Date(1000 * s).toISOString().substr(14, 5);
         seekBar.value = (video.currentTime / video.duration) * 100 || 0;
         timeDisplay.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration || 0)}`;
@@ -841,6 +1015,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {boolean} urlPresent - Whether an API URL is set.
      */
     function updateApiStatus(keyPresent, urlPresent) {
+
         updateTileStatus(apiKeyStatusText, apiKeyStatusIndicator, keyPresent);
         updateTileStatus(apiUrlStatusText, apiUrlStatusIndicator, urlPresent);
         const isApiReady = keyPresent && urlPresent;
@@ -858,6 +1033,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {boolean} cudaAvailable - Whether CUDA is available on the system.
      */
     function updateLocalLlmStatus(modelPresent, cudaAvailable) {
+
         updateTileStatus(localLlmStatusText, localLlmStatusIndicator, modelPresent);
         updateTileStatus(cudaStatusText, cudaStatusIndicator, cudaAvailable, 'Available', 'Not Available');
         localLlmGroupStatus.classList.remove('status-present', 'status-not-present', 'status-warning');
@@ -880,6 +1056,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {boolean} enabled - Whether the option should be enabled (true) or disabled (false).
      */
     function setSummaryOptionEnabled(mode, enabled) {
+
         const option = document.querySelector(`#summaryMethodSelector .llm-slider-option[data-mode="${mode}"]`);
         if (!option) return;
 

@@ -194,9 +194,16 @@ def create_app():
 
     @socketio.on('merge_persons')
     def on_merge_persons(data):
-        source_id, target_id = int(data['source_id']), int(data['target_id'])
-        if tracker.merge_persons(source_id, target_id, tracking_data):
-            emit('merge_notification', {'source_id': source_id, 'target_id': target_id}, broadcast=True)
+        # The frontend sends a list of sources, a single target, and the final name
+        source_ids = [int(sid) for sid in data['source_ids']]
+        target_id = int(data['target_id'])
+        new_name = data['name']
+
+        # The first ID in the merged list is the target, others are sources
+        if tracker.merge_persons(source_ids, target_id, new_name, tracking_data):
+            # Notify clients about the merge so they can update their local state
+            emit('merge_notification', {'source_ids': source_ids, 'target_id': target_id}, broadcast=True)
+            # Send the final, updated list of all known faces
             emit('known_faces_update', tracker.known_face_metadata, broadcast=True)
 
     @socketio.on('frame')
