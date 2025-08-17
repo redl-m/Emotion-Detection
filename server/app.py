@@ -232,7 +232,7 @@ def create_app():
 
         global local_llm, remote_llm, LLM_API_KEY, CURRENT_LLM_API_URL, CURRENT_LOCAL_LLM_MODEL_NAME
 
-        use_llm_mode = int(data.get("use_llm", 0))  # Default to 0 (heuristic)
+        use_llm_mode = int(data.get("use_llm", 0))
         active_llm = None
         print(f"INFO: Summary requested with mode: {use_llm_mode}")
 
@@ -244,6 +244,8 @@ def create_app():
                     try:
                         local_llm = LocalLLM(model_name=CURRENT_LOCAL_LLM_MODEL_NAME)
                         print("INFO: Local LLM loaded successfully.")
+                        # Send confirmation to the client that this model name is valid.
+                        emit('setting_validated', {'type': 'local_model', 'value': CURRENT_LOCAL_LLM_MODEL_NAME})
                     except Exception as e:
                         print(f"FATAL: Failed to load local LLM: {e}", file=sys.stderr)
                         emit('summary_status', {'status': 'error', 'message': f'Failed to load Local AI model: {e}'})
@@ -260,9 +262,10 @@ def create_app():
                 if remote_llm is None:
                     print("INFO: Initializing remote LLM client with API key...")
                     try:
-                        # MODIFIED: Pass both the key and URL from our global config
                         remote_llm = RemoteLLM(api_key=LLM_API_KEY, api_url=CURRENT_LLM_API_URL)
                         print("INFO: Remote LLM client is ready.")
+                        # Send confirmation to the client that this API URL is valid.
+                        emit('setting_validated', {'type': 'api_url', 'value': CURRENT_LLM_API_URL})
                     except Exception as e:
                         print(f"ERROR: Failed to initialize Remote LLM client: {e}", file=sys.stderr)
                         emit('summary_status', {'status': 'error', 'message': f'Failed to setup API client: {e}'})

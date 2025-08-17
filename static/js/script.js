@@ -147,21 +147,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setApiUrlBtn.addEventListener('click', () => {
             const url = apiUrlInput.value.trim();
-            // Add to history ONLY if it's a non-empty, non-default value
-            if (url && url !== defaultApiUrl) {
-                addToHistory('apiUrlHistory', url);
-            }
             socket.emit('set_api_url', {url: url});
             apiUrlInput.value = ''; // Clear input field after setting
         });
 
         setLocalModelBtn.addEventListener('click', () => {
             const model = localModelInput.value.trim();
-            // Add to history ONLY if it's a non-empty, non-default value
-            if (model && model !== defaultLocalModel) {
-                addToHistory('localModelHistory', model);
-            }
-            // Emit to backend. Backend handles empty string to reset to default.
             socket.emit('set_local_model', {model_name: model});
             localModelInput.value = ''; // Clear input field after setting
         });
@@ -185,6 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // Socket listeners
+
         socket.on('known_faces_update', onKnownFacesUpdate);
         socket.on('frame_data', onFrameData);
         socket.on('tracking_summary', renderSummary);
@@ -203,6 +195,24 @@ document.addEventListener('DOMContentLoaded', () => {
             // Update placeholders to show the *currently active* setting
             apiUrlInput.placeholder = `Current: ${data.api_url}`;
             localModelInput.placeholder = `Current: ${data.local_model_name}`;
+        });
+        // Listener for valid LLM models and API URLs, which get stored in the local cache
+        socket.on('setting_validated', (data) => {
+            console.log('Received validation from backend:', data);
+
+            if (data.type === 'api_url') {
+                // Add the confirmed URL to history if it's not the default.
+                if (data.value && data.value !== defaultApiUrl) {
+                    addToHistory('apiUrlHistory', data.value);
+                    console.log(`Added valid API URL to history: ${data.value}`);
+                }
+            } else if (data.type === 'local_model') {
+                // Add the confirmed model to history if it's not the default.
+                if (data.value && data.value !== defaultLocalModel) {
+                    addToHistory('localModelHistory', data.value);
+                    console.log(`Added valid LLM Model to history: ${data.value}`);
+                }
+            }
         });
     }
 
