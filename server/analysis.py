@@ -282,20 +282,21 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
     # ---------- LLM version ----------
     if llm:
         print(f"INFO: Generating summary for {person_name} with LLM.")
-        timeline = ", ".join([emotion_labels[e] for e in emotions_sequence])
+        timeline_emotions = ", ".join([emotion_labels[e] for e in emotions_sequence])
 
         engagement_info = ""
         if avg_engagement is not None:
-            engagement_info = f"\nThe average engagement score was {avg_engagement} on a scale from 0 to 1."
+            engagement_info = (f"\nThe engagement sequence is: {engagement_sequence}"
+                               f"with an average engagement score of {avg_engagement} on a scale from 0 to 1.")
 
         prompt = (
             f"Write a concise, human-readable summary of {person_name}'s emotional and attentional (engagement) development "
-            f"over time based on the following emotional sequence: {timeline}.{engagement_info} "
-            f"You must not quote the raw sequence itself, but summarize the overall trend."
+            f"over time based on the following emotional sequence: {timeline_emotions}.{engagement_info}\n"
+            f"You must not quote the raw sequence itself, but summarize the overall trend.\n"
             f"Summary:"
         )
-        print("DEBUG: Prompt for LLM: " + prompt)
-        return llm.generate_narrative(prompt, max_new_tokens=40, temperature=0.2, top_p=0.9)
+        print("DEBUG: Prompt for LLM:\n\t" + prompt)
+        return llm.generate_narrative(prompt, max_new_tokens=100, temperature=0.2, top_p=0.9)
 
     # ---------- Heuristic fallback ----------
     counts = Counter(emotions_sequence)
