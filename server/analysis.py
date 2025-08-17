@@ -9,6 +9,7 @@ import time
 import requests
 import json
 
+
 class FaceReIDTracker:
     """
     Tracks, re-identifies, and manages faces using the 'face_recognition' library.
@@ -95,13 +96,15 @@ class RemoteLLM:
 
     def generate_narrative(self, prompt, **gen_overrides):
         """
-        Generates a narrative by calling the remote API.
-        This example is tailored for OpenAI's Chat Completions API.
+        Generates a short narrative from the local LLM based on a prompt.
+
+        :param prompt: The input text prompt for the LLM.
+        :param gen_overrides: Optional keyword arguments that override default generation parameters
+                              (e.g., max_new_tokens, temperature, top_p).
+        :return: A generated narrative string with special tokens removed.
         """
         print(f"INFO: Calling remote LLM API ({self.model})...")
 
-        # Construct the payload according to your API's documentation.
-        # This is an example for OpenAI.
         payload = {
             "model": self.model,
             "messages": [
@@ -116,9 +119,7 @@ class RemoteLLM:
             response = requests.post(self.api_url, headers=self.headers, data=json.dumps(payload), timeout=20)
             response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
 
-            # Parse the response to extract the generated text.
-            # This will vary greatly between different APIs.
-            # For OpenAI Chat API:
+            # Parse the response to extract the generated text (this will vary greatly between different APIs)
             result_text = response.json()['choices'][0]['message']['content']
 
             print("INFO: Narrative generated successfully from API.")
@@ -134,16 +135,16 @@ class RemoteLLM:
             return f"Error: Could not understand the response from the API."
 
 
-
 # ---------------- LOCAL LLM SETUP ----------------
 class LocalLLM:
     """Local LLM wrapper with optional 4-bit quantization (bitsandbytes)."""
+
     def __init__(
-        self,
-        model_name="tiiuae/falcon-7b-instruct", # Modifiable, see https://huggingface.co/models
-        device=None,
-        quantize_4bit=True,
-        trust_remote_code=False
+            self,
+            model_name="tiiuae/falcon-7b-instruct",
+            device=None,
+            quantize_4bit=True,
+            trust_remote_code=False
     ):
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -176,9 +177,10 @@ class LocalLLM:
                 )
                 model_kwargs["quantization_config"] = quantization_config
             else:
-                model_kwargs["torch_dtype"] = torch.float16 # float16 for better performance on GPU if not quantizing
+                model_kwargs["torch_dtype"] = torch.float16  # float16 for better performance on GPU if not quantizing
         else:
-            print("WARNING: CPU device detected. Quantization is disabled. Model will be loaded in full precision (float32).")
+            print(
+                "WARNING: CPU device detected. Quantization is disabled. Model will be loaded in full precision (float32).")
 
         print(f"INFO: Loading model '{model_name}'... This may take a significant amount of time and memory.")
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -198,6 +200,12 @@ class LocalLLM:
         )
 
     def generate_narrative(self, prompt, **gen_overrides):
+        """
+
+        :param prompt:
+        :param gen_overrides:
+        :return:
+        """
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
         gen_cfg = {**self.generation_defaults, **gen_overrides}
         with torch.inference_mode():
@@ -211,13 +219,15 @@ class LocalLLM:
 
 def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels, llm=None, engagement_sequence=None):
     """
+    Generates a narrative summary of a person’s emotional development (and optionally engagement)
+    using either a provided LLM or a heuristic fallback method.
 
-    :param person_name:
-    :param emotions_sequence:
-    :param emotion_labels:
-    :param llm:
-    :param engagement_sequence:
-    :return:
+    :param person_name: The display name of the person.
+    :param emotions_sequence: A list of predicted emotion indices over time.
+    :param emotion_labels: A mapping of indices to emotion label strings.
+    :param llm: Optional LocalLLM or RemoteLLM instance used to generate the summary.
+    :param engagement_sequence: Optional list of engagement scores (floats between 0 and 1).
+    :return: A human-readable summary string describing emotional and attentional trends.
     """
     if not emotions_sequence or len(emotions_sequence) < 5:
         return f"Not enough emotional data for {person_name} to generate a meaningful summary."
@@ -278,16 +288,18 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
     return narrative.strip()
 
 
-
 def analyze_frame(frame, emotion_model, tracker, tracking_data, head_pose_data):
     """
+    Analyzes a single video frame to detect and classify emotions, update tracking data,
+    and compute engagement if head pose data is available.
 
-    :param frame:
-    :param emotion_model:
-    :param tracker:
-    :param tracking_data:
-    :param head_pose_data:
-    :return:
+    :param frame: The video frame in OpenCV format.
+    :param emotion_model: A PyTorch model for emotion recognition.
+    :param tracker: A tracking object that assigns IDs and bounding boxes to detected persons.
+    :param tracking_data: Dictionary storing tracked persons’ emotional and engagement histories.
+    :param head_pose_data: Dictionary mapping tracked indices to head pose/engagement info.
+    :return: A list of result dictionaries, each containing person ID, name, bounding box,
+             predicted emotion, confidence score, probability distribution, and engagement (if any).
     """
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     tracked_persons = tracker.update(rgb_frame)
@@ -334,12 +346,15 @@ def analyze_frame(frame, emotion_model, tracker, tracking_data, head_pose_data):
 
 def generate_summary_payload(tracking_data, tracker, emotion_labels, llm=None):
     """
+    Generates a summary payload for all tracked persons, including narrative summaries,
+    emotion distributions, and engagement statistics.
 
-    :param tracking_data:
-    :param tracker:
-    :param emotion_labels:
-    :param llm:
-    :return:
+    :param tracking_data: Dictionary containing emotional and engagement data for each tracked person.
+    :param tracker: Face recognition tracker with metadata about known persons.
+    :param emotion_labels: List of emotion label strings (index-aligned with predictions).
+    :param llm: Optional LocalLLM or RemoteLLM instance used for narrative generation.
+    :return: A dictionary mapping person IDs to summary information, including narrative text,
+             emotion distribution, detection count, and average engagement.
     """
 
     summary_payload = {}

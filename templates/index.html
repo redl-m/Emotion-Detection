@@ -8,6 +8,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
+
+
 </head>
 <body>
 <div class="container">
@@ -44,12 +46,6 @@
                 <div class="llm-slider-option" data-mode="1">Local LLM Summary</div>
                 <div class="llm-slider-option" data-mode="2">API LLM Summary</div>
                 <div class="llm-slider-indicator"></div>
-            </div>
-
-            <div id="apiKeyManager" class="api-key-panel"
-                 style="display: none; margin-top: 10px; padding: 10px; border: 1px solid #444; border-radius: 5px;">
-                <p style="margin: 0 0 8px 0;">API Key Status: <strong id="apiKeyStatus">Checking...</strong></p>
-                <button id="changeApiKeyBtn" class="control-button">Set / Change API Key</button>
             </div>
         </div>
     </header>
@@ -88,60 +84,103 @@
 
         <aside id="analysis-section" class="charts-section">
             <div class="chart-container">
-                <div class="chart-header">
-                    <h2>Emotion Likelihood</h2>
+                <div class="chart-header"><h2>Emotion Likelihood</h2>
                     <div id="participant-selector-bar"></div>
                 </div>
                 <div id="prob-bar-chart"></div>
             </div>
-
             <div class="chart-container">
-                <div class="chart-header">
-                    <h2>Emotion Over Time</h2>
+                <div class="chart-header"><h2>Emotion Over Time</h2>
                     <div id="participant-selector-ts"></div>
                 </div>
                 <div id="chart"></div>
             </div>
-
-
             <div class="chart-container" id="attention-chart-container">
-                <div class="chart-header">
-                    <h2>Attention Level Over Time</h2>
+                <div class="chart-header"><h2>Attention Level Over Time</h2>
                     <div id="participant-selector-attn"></div>
                 </div>
             </div>
-
-
-            <div class="chart-container" id="legend-container">
-                <h2>Legend</h2>
+            <div class="chart-container" id="legend-container"><h2>Legend</h2>
                 <div id="legend"></div>
             </div>
-
-
-            <div id="summary-container" class="chart-container hidden">
-                <h2>Session Summary</h2>
+            <div id="summary-container" class="chart-container hidden"><h2>Session Summary</h2>
                 <div id="summary-report"></div>
+            </div>
+        </aside>
+
+        <aside id="settings-section">
+
+            <div class="status-group-container chart-container">
+                <div class="group-header">
+                    <h3>Local LLM</h3>
+                    <div class="group-status-indicator" id="localLlmGroupStatus"></div>
+                </div>
+                <div class="status-tile">
+                    <span>Model</span>
+                    <span class="status-text" id="localLlmStatusText">Not Present</span>
+                    <div class="status-indicator" id="localLlmStatusIndicator"></div>
+                </div>
+                <div class="status-tile">
+                    <span>CUDA</span>
+                    <span class="status-text" id="cudaStatusText">Not Available</span>
+                    <div class="status-indicator" id="cudaStatusIndicator"></div>
+                </div>
+            </div>
+
+            <div class="status-group-container chart-container">
+                <div class="group-header">
+                    <h3>API LLM</h3>
+                    <div class="group-status-indicator" id="apiGroupStatus"></div>
+                </div>
+                <div class="status-tile">
+                    <span>API Key</span>
+                    <span class="status-text" id="apiKeyStatusText">Not Present</span>
+                    <div class="status-indicator" id="apiKeyStatusIndicator"></div>
+                </div>
+                <div class="status-tile">
+                    <span>API URL</span>
+                    <span class="status-text" id="apiUrlStatusText">Not Present</span>
+                    <div class="status-indicator" id="apiUrlStatusIndicator"></div>
+                </div>
+            </div>
+
+            <div class="settings-tile chart-container">
+                <h3>API Key</h3>
+                <div class="settings-input-group">
+                    <input type="password" id="apiKeyInput" placeholder="Enter new API Key">
+                    <button id="setApiKeyBtn">Set</button>
+                </div>
+            </div>
+
+            <div class="settings-tile chart-container">
+                <h3>API URL</h3>
+                <div class="settings-input-group">
+                    <input type="text" id="apiUrlInput" placeholder="Enter new API URL">
+                    <button id="setApiUrlBtn">Set</button>
+                </div>
+            </div>
+
+            <div class="settings-tile chart-container">
+                <h3>Local LLM Model</h3>
+                <div class="settings-input-group">
+                    <input type="text" id="localModelInput" placeholder="Enter model name">
+                    <button id="setLocalModelBtn">Set</button>
+                </div>
             </div>
         </aside>
     </main>
 </div>
 
-<script>
-    function onOpenCvReady() {
-        window.cvReady = true;
-        console.log('OpenCV.js is ready.');
-    }
-</script>
-
+<script>function onOpenCvReady() {
+    window.cvReady = true;
+    console.log('OpenCV.js is ready.');
+}</script>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script src="https://d3js.org/d3.v7.min.js"></script>
-
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
 <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
-
-
 <script src="{{ url_for('static', filename='js/headPose.js') }}"></script>
 <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 <script src="{{ url_for('static', filename='js/attentionChart.js') }}"></script>

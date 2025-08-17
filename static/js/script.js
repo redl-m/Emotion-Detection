@@ -48,6 +48,25 @@ document.addEventListener('DOMContentLoaded', () => {
         summaryReport: document.getElementById('summary-report'),
     };
 
+    const apiKeyStatusText = document.getElementById('apiKeyStatusText');
+    const apiKeyStatusIndicator = document.getElementById('apiKeyStatusIndicator');
+    const apiUrlStatusText = document.getElementById('apiUrlStatusText');
+    const apiUrlStatusIndicator = document.getElementById('apiUrlStatusIndicator');
+    const apiGroupStatus = document.getElementById('apiGroupStatus');
+
+    const localLlmStatusText = document.getElementById('localLlmStatusText');
+    const localLlmStatusIndicator = document.getElementById('localLlmStatusIndicator');
+    const cudaStatusText = document.getElementById('cudaStatusText');
+    const cudaStatusIndicator = document.getElementById('cudaStatusIndicator');
+    const localLlmGroupStatus = document.getElementById('localLlmGroupStatus');
+
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const setApiKeyBtn = document.getElementById('setApiKeyBtn');
+    const apiUrlInput = document.getElementById('apiUrlInput');
+    const setApiUrlBtn = document.getElementById('setApiUrlBtn');
+    const localModelInput = document.getElementById('localModelInput');
+    const setLocalModelBtn = document.getElementById('setLocalModelBtn');
+
     // ---------------------------------------------------
     // C. Setup & Initialization
     // ---------------------------------------------------
@@ -79,6 +98,10 @@ document.addEventListener('DOMContentLoaded', () => {
         poseEstimator.initialize();
         socket.emit('client_ready');
         requestAnimationFrame(drawLoop);
+
+        if (typeof socket === 'undefined') {
+            console.error('Socket.IO instance not found. Make sure settings.js is loaded after the main socket script.');
+        }
     }
 
     socket.on("connect", () => {
@@ -97,15 +120,48 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.mergeBtn.addEventListener('click', toggleMergeMode);
         dom.placeholder.addEventListener('click', () => dom.uploadInput.click());
 
+        setApiKeyBtn.addEventListener('click', () => {
+            const key = apiKeyInput.value;
+            // The backend handles empty strings as "clearing" the key
+            socket.emit('set_api_key', {key: key});
+            apiKeyInput.value = ''; // Clear input for security
+            apiKeyInput.placeholder = "API Key has been set";
+            setTimeout(() => {
+                apiKeyInput.placeholder = "Enter new API Key";
+            }, 2000);
+        });
+
+        setApiUrlBtn.addEventListener('click', () => {
+            const url = apiUrlInput.value.trim();
+            if (url) {
+                socket.emit('set_api_url', {url: url});
+            } else {
+                alert('API URL field cannot be empty.');
+            }
+        });
+
+        setLocalModelBtn.addEventListener('click', () => {
+            const model = localModelInput.value.trim();
+            if (model) {
+                socket.emit('set_local_model', {model_name: model});
+            } else {
+                alert('Local LLM Model field cannot be empty.');
+            }
+        });
+
         // Socket listeners
         socket.on('known_faces_update', onKnownFacesUpdate);
         socket.on('frame_data', onFrameData);
         socket.on('tracking_summary', renderSummary);
         socket.on('merge_notification', onMergeNotification);
-        socket.on('api_key_status_update', onAPIKeyStatusUpdate);
-        socket.on("request_api_key", async () => {
-            await requestAPIKey();
-            socket.emit("get_summary", {use_llm: useLLM});
+        // Listener for the unified status update from the backend
+        socket.on('status_update', (data) => {
+            console.log('Received status update:', data);
+            updateApiStatus(data.api_key_present, data.api_url_present);
+            updateLocalLlmStatus(data.local_model_present, data.cuda_available);
+            // Populate the input fields with current values from the server
+            if (data.api_url) apiUrlInput.value = data.api_url;
+            if (data.local_model_name) localModelInput.value = data.local_model_name;
         });
     }
 
@@ -497,9 +553,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function setupSummaryMethodSlider(onChangeCallback) {
         const options = document.querySelectorAll(".llm-slider-option");
         const indicator = document.querySelector(".llm-slider-indicator");
-        const apiKeyManager = document.getElementById('apiKeyManager');
 
-        if (!options.length || !indicator || !apiKeyManager) {
+        if (!options.length || !indicator) {
             console.error("Slider elements not found!");
             return;
         }
@@ -507,33 +562,29 @@ document.addEventListener('DOMContentLoaded', () => {
         const numOptions = options.length;
         const optionWidthPercent = 100 / numOptions;
 
-        indicator.style.width = `${optionWidthPercent}%`;
+        indicator.style.width = `calc(${optionWidthPercent}% - 3px)`;
 
         options.forEach((opt, index) => {
             opt.addEventListener("click", () => {
                 const mode = opt.getAttribute("data-mode");
 
+                // Update visual state
                 options.forEach(o => o.classList.remove("selected"));
                 opt.classList.add("selected");
+                indicator.style.left = `calc(${index * optionWidthPercent}% + 2px)`;
 
-                indicator.style.left = `${index * optionWidthPercent}%`;
 
-                if (mode === '2') {
-                    apiKeyManager.style.display = 'block';
-                    socket.emit('get_api_key_status');
-                } else {
-                    apiKeyManager.style.display = 'none';
-                }
-
+                // Call the callback function with the new mode
                 if (typeof onChangeCallback === "function") {
                     onChangeCallback(parseInt(mode));
                 }
             });
         });
 
+        // Set initial state
         if (options[0]) {
             options[0].classList.add("selected");
-            indicator.style.left = "0%";
+            indicator.style.left = "2px";
         }
     }
 
@@ -542,54 +593,9 @@ document.addEventListener('DOMContentLoaded', () => {
      * Sets up the summary method slider.
      */
     setupSummaryMethodSlider(newMode => {
+        console.log("Summary mode changed to:", newMode);
         useLLM = newMode;
     });
-
-    // Change API Button
-    const changeApiKeyBtn = document.getElementById('changeApiKeyBtn');
-
-    if (changeApiKeyBtn) {
-        changeApiKeyBtn.addEventListener('click', () => {
-            requestAPIKey();
-        });
-    } else {
-        console.error('Button with ID "changeApiKeyBtn" was not found.');
-    }
-
-
-    /**
-     * Updates the status of the API key based on user input.
-     * @param data The data emitted from the socket.
-     */
-    function onAPIKeyStatusUpdate(data) {
-
-        const statusElem = document.getElementById("apiKeyStatus");
-
-        if (!statusElem) return;
-
-        // Decide what to display based on the emitted data
-        if (data.is_set) {
-            statusElem.textContent = "Present";
-        } else {
-            statusElem.textContent = "Not Present";
-        }
-    }
-
-
-    /**
-     * Request the user to prompt an API key.
-     */
-    function requestAPIKey() {
-        const newKey = prompt(
-            "Please enter your LLM API Key. To clear the key, leave this blank and press OK.",
-            "" // Default value in the prompt
-        );
-
-        // Only proceed if "Ok" is clicked
-        if (newKey !== null) {
-            socket.emit('set_api_key', {key: newKey}); // New key is set to backend
-        }
-    }
 
 
     /**
@@ -805,6 +811,94 @@ document.addEventListener('DOMContentLoaded', () => {
         const icon = video.paused ? 'play' : 'pause';
         playPauseBtn.innerHTML = `<svg class="icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">${icon === 'play' ? '<polygon points="5 3 19 12 5 21 5 3"></polygon>' : '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>'}</svg>`;
     }
+
+
+    // ---------------------------------------------------
+    // G. Status Section
+    // ---------------------------------------------------
+
+    /**
+     * Updates the status text and visual indicator for a tile element.
+     *
+     * @param {HTMLElement} textEl - The element where the status text is displayed.
+     * @param {HTMLElement} indicatorEl - The element whose classes indicate the status.
+     * @param {boolean} isPresent - True if present, false otherwise.
+     * @param {string} [presentText='Present'] - Text shown if isPresent is true.
+     * @param {string} [notPresentText='Not Present'] - Text shown if isPresent is false.
+     */
+    function updateTileStatus(textEl, indicatorEl, isPresent, presentText = 'Present', notPresentText = 'Not Present') {
+        textEl.textContent = isPresent ? presentText : notPresentText;
+        indicatorEl.classList.remove('status-present', 'status-not-present', 'status-warning');
+        indicatorEl.classList.add(isPresent ? 'status-present' : 'status-not-present');
+    }
+
+
+    /**
+     * Updates the API status indicators for API key and URL presence,
+     * and enables/disables the corresponding summary option.
+     *
+     * @param {boolean} keyPresent - Whether an API key is available.
+     * @param {boolean} urlPresent - Whether an API URL is set.
+     */
+    function updateApiStatus(keyPresent, urlPresent) {
+        updateTileStatus(apiKeyStatusText, apiKeyStatusIndicator, keyPresent);
+        updateTileStatus(apiUrlStatusText, apiUrlStatusIndicator, urlPresent);
+        const isApiReady = keyPresent && urlPresent;
+        setSummaryOptionEnabled(2, isApiReady);
+        apiGroupStatus.classList.remove('status-present', 'status-not-present');
+        apiGroupStatus.classList.add(isApiReady ? 'status-present' : 'status-not-present');
+    }
+
+
+    /**
+     * Updates the status indicators for a local LLM model and CUDA availability.
+     * Applies special handling if a model is present but CUDA is unavailable.
+     *
+     * @param {boolean} modelPresent - Whether a local LLM model is available.
+     * @param {boolean} cudaAvailable - Whether CUDA is available on the system.
+     */
+    function updateLocalLlmStatus(modelPresent, cudaAvailable) {
+        updateTileStatus(localLlmStatusText, localLlmStatusIndicator, modelPresent);
+        updateTileStatus(cudaStatusText, cudaStatusIndicator, cudaAvailable, 'Available', 'Not Available');
+        localLlmGroupStatus.classList.remove('status-present', 'status-not-present', 'status-warning');
+        setSummaryOptionEnabled(1, modelPresent);
+        if (modelPresent && cudaAvailable) {
+            localLlmGroupStatus.classList.add('status-present');
+        } else if (modelPresent && !cudaAvailable) {
+            localLlmGroupStatus.classList.add('status-warning');
+        } else {
+            localLlmGroupStatus.classList.add('status-not-present');
+        }
+    }
+
+
+    /**
+     * Enables or disables a summary method option in the selector UI.
+     * If the currently selected option is disabled, resets the selection to the default (mode 0).
+     *
+     * @param {number} mode - The numeric identifier of the summary method option:
+     * @param {boolean} enabled - Whether the option should be enabled (true) or disabled (false).
+     */
+    function setSummaryOptionEnabled(mode, enabled) {
+        const option = document.querySelector(`#summaryMethodSelector .llm-slider-option[data-mode="${mode}"]`);
+        if (!option) return;
+
+        if (enabled) {
+            option.classList.remove("disabled");
+            option.setAttribute("aria-disabled", "false");
+        } else {
+            option.classList.add("disabled");
+            option.setAttribute("aria-disabled", "true");
+
+            // If the currently selected option is being disabled, reset to default (mode 0)
+            if (option.classList.contains("selected")) {
+                option.classList.remove("selected");
+                const defaultOption = document.querySelector(`#summaryMethodSelector .llm-slider-option[data-mode="0"]`);
+                if (defaultOption) defaultOption.classList.add("selected");
+            }
+        }
+    }
+
 
     // ---------------------------------------------------
     // H. Start the application

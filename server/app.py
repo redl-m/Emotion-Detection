@@ -21,19 +21,31 @@ from server.analysis import FaceReIDTracker, LocalLLM, RemoteLLM, analyze_frame,
 frame_lock = threading.Lock()
 latest_frame_data = None
 
-# --- Global LLM instances (lazy loaded) ---
+# --- Global LLM instances ---
 local_llm = None
 remote_llm = None
-llm_lock = threading.Lock()  # Lock to prevent multiple threads from loading models at once
+llm_lock = threading.Lock()
 
-# --- API Key Storage ---
-# This will be stored in memory for the lifetime of the server.
-# Set it here if you want a default key.
+# --- Global Settings Configuration ---
 LLM_API_KEY = None
+LLM_API_URL = "https://api.openai.com/v1/chat/completions"
+LOCAL_LLM_MODEL_NAME = "tiiuae/falcon-7b-instruct"
 
 
 def create_app():
-    """Creates and infigures the Flask application and SocketIO server."""
+    """
+    Creates and configures the Flask application and SocketIO server.
+
+    Sets up:
+      - Flask app and SocketIO integration
+      - Emotion model loading
+      - Person tracker initialization
+      - Background analysis worker thread
+      - SocketIO event handlers for status updates, frame processing,
+        model settings, and summary generation
+
+    :return: A tuple (socketio, app) with the configured SocketIO server and Flask application.
+    """
     app = Flask(__name__, template_folder=os.path.join(project_root, 'templates'),
                 static_folder=os.path.join(project_root, 'static'))
     app.config['SECRET_KEY'] = 'secret-emotion-key!'
@@ -49,25 +61,23 @@ def create_app():
     # Initialize Tracker and session data
     tracker = FaceReIDTracker(tolerance=0.55)
     tracking_data = {}
-
     emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral']
 
     # --- Worker Thread for Frame Processing ---
     def analysis_worker():
         """
         Runs in a background thread, continuously processing the latest available frame.
+        :return:
         """
         global latest_frame_data
         print("INFO: Analysis worker thread started.")
         while True:
             frame_to_process = None
             head_pose_to_process = None
-
             with frame_lock:
                 if latest_frame_data is not None:
                     frame_to_process, head_pose_to_process = latest_frame_data
                     latest_frame_data = None
-
             if frame_to_process is not None:
                 try:
                     results = analyze_frame(
@@ -81,13 +91,29 @@ def create_app():
                         socketio.emit('frame_data', json.dumps(results))
                 except Exception as e:
                     print(f"Error in analysis worker: {e}", file=sys.stderr)
-
             socketio.sleep(0.1)
 
     # --- SocketIO Event Handlers ---
     @app.route('/')
     def index():
         return render_template('index.html')
+
+    # Helper function to gather and emit the current status of all settings
+    def emit_status_update():
+        """
+        Gathers all current statuses and emits them to the client.
+        :return:
+        """
+        status = {
+            "api_key_present": LLM_API_KEY is not None and LLM_API_KEY != "",
+            "api_url_present": LLM_API_URL is not None and LLM_API_URL != "",
+            "local_model_present": LOCAL_LLM_MODEL_NAME is not None and LOCAL_LLM_MODEL_NAME != "",
+            "cuda_available": torch.cuda.is_available(),
+            # Also send the current values to populate the input fields
+            "api_url": LLM_API_URL,
+            "local_model_name": LOCAL_LLM_MODEL_NAME,
+        }
+        emit('status_update', status)
 
     @socketio.on('connect')
     def on_connect():
@@ -96,14 +122,14 @@ def create_app():
             app.analysis_thread_started = True
             print("INFO: Client connected, background worker started.")
 
-    # --- API KEY MANAGEMENT HANDLERS ---
-    @socketio.on('get_api_key_status')
-    def on_get_api_key_status():
-        """Client is asking if the API key is set."""
-        global LLM_API_KEY
-        print("DEBUG: status: " + str(LLM_API_KEY is not None and LLM_API_KEY != ""))
-        emit('api_key_status_update', {'is_set': LLM_API_KEY is not None and LLM_API_KEY != ""})
+        emit_status_update()
 
+    # Handler for the client to request a status update at any time
+    @socketio.on('get_status')
+    def on_get_status():
+        emit_status_update()
+
+    # --- Settings Management Handlers ---
     @socketio.on('set_api_key')
     def on_set_api_key(data):
         """Client is setting a new API key."""
@@ -113,14 +139,42 @@ def create_app():
         if new_key and new_key.strip():
             LLM_API_KEY = new_key
             print("INFO: API Key has been set by the user.")
-            # Invalidate the old remote_llm instance so it gets recreated with the new key
             with llm_lock:
-                remote_llm = None
+                remote_llm = None  # Invalidate old instance
         else:
             LLM_API_KEY = None
             print("INFO: API Key has been cleared.")
 
-        emit('api_key_status_update', {'is_set': LLM_API_KEY is not None})
+        emit_status_update() # Send a full status update after changing the key
+
+    # Handler for setting the API URL
+    @socketio.on('set_api_url')
+    def on_set_api_url(data):
+        global LLM_API_URL, remote_llm
+        new_url = data.get('url')
+        if new_url and new_url.strip():
+            LLM_API_URL = new_url
+            print(f"INFO: API URL set to: {LLM_API_URL}")
+            with llm_lock:
+                remote_llm = None  # Invalidate to force recreation with new URL
+        else:
+            print("WARN: Attempted to set an empty API URL.")
+        emit_status_update()
+
+    # Handler for setting the local LLM model
+    @socketio.on('set_local_model')
+    def on_set_local_model(data):
+        global LOCAL_LLM_MODEL_NAME, local_llm
+        new_model = data.get('model_name')
+        if new_model and new_model.strip():
+            LOCAL_LLM_MODEL_NAME = new_model
+            print(f"INFO: Local LLM model set to: {LOCAL_LLM_MODEL_NAME}")
+            with llm_lock:
+                local_llm = None  # Invalidate to force reloading the new model
+        else:
+            print("WARN: Attempted to set an empty local model name.")
+            print("WARN: Attempted to set an empty local model name.")
+        emit_status_update()
 
     @socketio.on('client_ready')
     def on_client_ready():
@@ -151,7 +205,6 @@ def create_app():
         try:
             image_data = base64.b64decode(payload['data_url'].split(',', 1)[1])
             frame = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
-
             with frame_lock:
                 latest_frame_data = (frame, payload.get('head_pose', {}))
         except Exception as e:
@@ -159,21 +212,20 @@ def create_app():
 
     @socketio.on('get_summary')
     def on_get_summary(data):
-        global local_llm, remote_llm, LLM_API_KEY
+
+        global local_llm, remote_llm, LLM_API_KEY, LLM_API_URL, LOCAL_LLM_MODEL_NAME
 
         use_llm_mode = int(data.get("use_llm", 0))  # Default to 0 (heuristic)
-        active_llm = None  # This will hold the llm instance to be used
-
+        active_llm = None
         print(f"INFO: Summary requested with mode: {use_llm_mode}")
 
-        # --- LLM INSTANCE SELECTION AND LAZY LOADING ---
         with llm_lock:
             if use_llm_mode == 1:  # Use Local LLM
                 if local_llm is None:
                     print("INFO: Initializing and loading the local LLM...")
                     emit('summary_status', {'status': 'loading_model', 'message': 'Local AI model is loading...'})
                     try:
-                        local_llm = LocalLLM()
+                        local_llm = LocalLLM(model_name=LOCAL_LLM_MODEL_NAME)
                         print("INFO: Local LLM loaded successfully.")
                     except Exception as e:
                         print(f"FATAL: Failed to load local LLM: {e}", file=sys.stderr)
@@ -183,8 +235,7 @@ def create_app():
 
             elif use_llm_mode == 2:  # Use Remote LLM via API
                 if not LLM_API_KEY:
-                    print("WARN: API key requested, but none is set. Prompting user.")
-                    emit('request_api_key') # Requesting API key from frontend
+                    print("WARN: API key requested, but none is set.")
                     emit('summary_status',
                          {'status': 'error', 'message': 'API Key is not set. Please set the key and try again.'})
                     return
@@ -192,8 +243,8 @@ def create_app():
                 if remote_llm is None:
                     print("INFO: Initializing remote LLM client with API key...")
                     try:
-                        # You can customize the URL or model name here if needed
-                        remote_llm = RemoteLLM(api_key=LLM_API_KEY)
+                        # MODIFIED: Pass both the key and URL from our global config
+                        remote_llm = RemoteLLM(api_key=LLM_API_KEY, api_url=LLM_API_URL)
                         print("INFO: Remote LLM client is ready.")
                     except Exception as e:
                         print(f"ERROR: Failed to initialize Remote LLM client: {e}", file=sys.stderr)
@@ -201,7 +252,7 @@ def create_app():
                         return
                 active_llm = remote_llm
 
-        # --- SUMMARY GENERATION ---
+        # --- Summary Generation ---
         if use_llm_mode > 0:
             emit('summary_status', {'status': 'generating', 'message': 'Model loaded. Generating summary...'})
         else:
