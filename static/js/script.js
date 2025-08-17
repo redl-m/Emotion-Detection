@@ -987,7 +987,7 @@ document.addEventListener('DOMContentLoaded', () => {
         timeDisplay.className = 'time-display';
 
         controlsContainer.append(playPauseBtn, seekBar, timeDisplay);
-        dom.controlsBottom.append(controlsContainer);
+        dom.videoWrapper.append(controlsContainer);
 
         const video = state.videoSource;
         playPauseBtn.addEventListener('click', () => video.paused ? video.play() : video.pause());
