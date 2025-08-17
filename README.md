@@ -48,7 +48,7 @@ Once the server is running, open your browser and navigate to `http://localhost:
 
 To start an emotion tracking session, start the live feed in the page header or upload a video in the header or by clicking on the canvas.  
 Emotion probabilities for the current frame and their development over time will be visualized right of the canvas. Below the two charts visualizing emotions is the visualization of estimated engagement in percent.  
-Set a summary method before clicking the "Stop & Summarize" on the top right. Available modes are heuristic summary, local LLM and remote LLM using an API.
+You can change the summary method before clicking the "Stop & Summarize" button on the top right. Available modes are heuristic summary, local LLM and remote LLM using an API. By default, heuristic summary is selected.
 
 ### Status Summaries
 
