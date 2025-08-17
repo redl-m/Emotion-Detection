@@ -8,7 +8,7 @@ The system detects emotions using PyTorch and visualizes them using D3. Addition
 2. local LLM
 3. remote LLM using an API URL and API key.
 
-See [Program Usage](##program-usage) for instructions on how to use and adjust the local and remote LLM.
+See [Program Usage](#program-usage) for instructions on how to use and adjust the local and remote LLM.
 
 ## Getting Started
 
