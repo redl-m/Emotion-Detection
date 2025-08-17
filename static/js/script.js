@@ -8,7 +8,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const FRAME_SEND_INTERVAL_MS = 200; // ~5 FPS
     const MAX_TIMESERIES_POINTS = 100;
     const poseEstimator = new HeadPoseEstimator();
+    const apiUrlHistory = document.getElementById('apiUrlHistory');
+    const localModelHistory = document.getElementById('localModelHistory');
     let useLLM;
+    let defaultApiUrl = '';
+    let defaultLocalModel = '';
 
     let state = {
         isTracking: false,
@@ -143,19 +147,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setApiUrlBtn.addEventListener('click', () => {
             const url = apiUrlInput.value.trim();
-            if (url) {
-                socket.emit('set_api_url', {url: url});
-            } else {
-                alert('API URL field cannot be empty.');
+            // Add to history ONLY if it's a non-empty, non-default value
+            if (url && url !== defaultApiUrl) {
+                addToHistory('apiUrlHistory', url);
             }
+            socket.emit('set_api_url', {url: url});
+            apiUrlInput.value = ''; // Clear input field after setting
         });
 
         setLocalModelBtn.addEventListener('click', () => {
             const model = localModelInput.value.trim();
-            if (model) {
-                socket.emit('set_local_model', {model_name: model});
-            } else {
-                alert('Local LLM Model field cannot be empty.');
+            // Add to history ONLY if it's a non-empty, non-default value
+            if (model && model !== defaultLocalModel) {
+                addToHistory('localModelHistory', model);
+            }
+            // Emit to backend. Backend handles empty string to reset to default.
+            socket.emit('set_local_model', {model_name: model});
+            localModelInput.value = ''; // Clear input field after setting
+        });
+
+        // Show history on input focus
+        apiUrlInput.addEventListener('focus', () => {
+            showHistory(apiUrlInput, apiUrlHistory, 'apiUrlHistory', defaultApiUrl);
+        });
+        localModelInput.addEventListener('focus', () => {
+            showHistory(localModelInput, localModelHistory, 'localModelHistory', defaultLocalModel);
+        });
+
+        // Hide history when clicking outside
+        document.addEventListener('click', (event) => {
+            if (!apiUrlInput.contains(event.target) && !apiUrlHistory.contains(event.target)) {
+                apiUrlHistory.style.display = 'none';
+            }
+            if (!localModelInput.contains(event.target) && !localModelHistory.contains(event.target)) {
+                localModelHistory.style.display = 'none';
             }
         });
 
@@ -172,6 +197,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // Populate the input fields with current values from the server
             if (data.api_url) apiUrlInput.value = data.api_url;
             if (data.local_model_name) localModelInput.value = data.local_model_name;
+            // Store default values from the backend
+            defaultApiUrl = data.default_api_url;
+            defaultLocalModel = data.default_local_model_name;
+            // Update placeholders to show the *currently active* setting
+            apiUrlInput.placeholder = `Current: ${data.api_url}`;
+            localModelInput.placeholder = `Current: ${data.local_model_name}`;
         });
     }
 
@@ -1001,6 +1032,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {string} [notPresentText='Not Present'] - Text shown if isPresent is false.
      */
     function updateTileStatus(textEl, indicatorEl, isPresent, presentText = 'Present', notPresentText = 'Not Present') {
+
         textEl.textContent = isPresent ? presentText : notPresentText;
         indicatorEl.classList.remove('status-present', 'status-not-present', 'status-warning');
         indicatorEl.classList.add(isPresent ? 'status-present' : 'status-not-present');
@@ -1075,6 +1107,72 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
+
+
+    /**
+     * Retrieves an array of history items from localStorage.
+     * @param {string} key The key for localStorage (e.g., 'apiUrlHistory').
+     * @returns {string[]} An array of history items.
+     */
+    const getHistory = (key) => {
+        return JSON.parse(localStorage.getItem(key)) || [];
+    };
+
+
+    /**
+     * Adds a new, unique item to the history in localStorage.
+     * @param {string} key The key for localStorage.
+     * @param {string} value The value to add.
+     */
+    const addToHistory = (key, value) => {
+
+        if (!value) return; // Don't save empty values
+        let history = getHistory(key);
+        // Remove the value if it already exists to move it to the top
+        history = history.filter(item => item !== value);
+        // Add the new value to the beginning of the array
+        history.unshift(value);
+        history = history.slice(0, 10);
+        localStorage.setItem(key, JSON.stringify(history));
+    };
+
+
+    /**
+     * Renders and displays the history dropdown for an input field.
+     * @param {HTMLElement} inputEl The input element.
+     * @param {HTMLElement} historyEl The container for the history dropdown.
+     * @param {string} storageKey The localStorage key.
+     * @param {string} defaultValue The default value from the backend.
+     */
+    const showHistory = (inputEl, historyEl, storageKey, defaultValue) => {
+
+        historyEl.innerHTML = ''; // Clear previous items
+        const history = getHistory(storageKey);
+
+        // Add the default option
+        const defaultItem = document.createElement('div');
+        defaultItem.className = 'history-item default';
+        defaultItem.textContent = `Default: ${defaultValue}`;
+        defaultItem.onclick = () => {
+            inputEl.value = defaultValue; // Set the default value
+            historyEl.style.display = 'none';
+        };
+        historyEl.appendChild(defaultItem);
+
+        // Add history items
+        history.forEach(item => {
+            const historyItem = document.createElement('div');
+            historyItem.className = 'history-item';
+            historyItem.textContent = item;
+            historyItem.onclick = () => {
+                inputEl.value = item;
+                historyEl.style.display = 'none';
+            };
+            historyEl.appendChild(historyItem);
+        });
+
+        historyEl.style.display = 'block';
+    };
 
 
     // ---------------------------------------------------

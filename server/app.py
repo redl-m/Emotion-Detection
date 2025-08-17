@@ -28,8 +28,10 @@ llm_lock = threading.Lock()
 
 # --- Global Settings Configuration ---
 LLM_API_KEY = None
-LLM_API_URL = "https://api.openai.com/v1/chat/completions"
-LOCAL_LLM_MODEL_NAME = "tiiuae/falcon-7b-instruct"
+DEFAULT_LLM_API_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_LOCAL_LLM_MODEL_NAME = "tiiuae/falcon-7b-instruct"
+CURRENT_LLM_API_URL = DEFAULT_LLM_API_URL
+CURRENT_LOCAL_LLM_MODEL_NAME = DEFAULT_LOCAL_LLM_MODEL_NAME
 
 
 def create_app():
@@ -106,12 +108,13 @@ def create_app():
         """
         status = {
             "api_key_present": LLM_API_KEY is not None and LLM_API_KEY != "",
-            "api_url_present": LLM_API_URL is not None and LLM_API_URL != "",
-            "local_model_present": LOCAL_LLM_MODEL_NAME is not None and LOCAL_LLM_MODEL_NAME != "",
+            "api_url_present": CURRENT_LLM_API_URL is not None and CURRENT_LLM_API_URL != "",
+            "local_model_present": CURRENT_LOCAL_LLM_MODEL_NAME is not None and CURRENT_LOCAL_LLM_MODEL_NAME != "",
             "cuda_available": torch.cuda.is_available(),
-            # Also send the current values to populate the input fields
-            "api_url": LLM_API_URL,
-            "local_model_name": LOCAL_LLM_MODEL_NAME,
+            "api_url": CURRENT_LLM_API_URL,
+            "local_model_name": CURRENT_LOCAL_LLM_MODEL_NAME,
+            "default_api_url": DEFAULT_LLM_API_URL,
+            "default_local_model_name": DEFAULT_LOCAL_LLM_MODEL_NAME,
         }
         emit('status_update', status)
 
@@ -145,35 +148,42 @@ def create_app():
             LLM_API_KEY = None
             print("INFO: API Key has been cleared.")
 
-        emit_status_update() # Send a full status update after changing the key
+        emit_status_update()  # Send a full status update after changing the key
 
     # Handler for setting the API URL
     @socketio.on('set_api_url')
     def on_set_api_url(data):
-        global LLM_API_URL, remote_llm
-        new_url = data.get('url')
-        if new_url and new_url.strip():
-            LLM_API_URL = new_url
-            print(f"INFO: API URL set to: {LLM_API_URL}")
-            with llm_lock:
-                remote_llm = None  # Invalidate to force recreation with new URL
+
+        global CURRENT_LLM_API_URL, remote_llm
+        new_url = data.get('url', '').strip()
+
+        if new_url:
+            CURRENT_LLM_API_URL = new_url
+            print(f"INFO: API URL set to: {CURRENT_LLM_API_URL}")
         else:
-            print("WARN: Attempted to set an empty API URL.")
+            CURRENT_LLM_API_URL = DEFAULT_LLM_API_URL
+            print(f"INFO: API URL cleared. Reverting to default: {CURRENT_LLM_API_URL}")
+
+        with llm_lock:
+            remote_llm = None  # Invalidate to force recreation
         emit_status_update()
 
     # Handler for setting the local LLM model
     @socketio.on('set_local_model')
     def on_set_local_model(data):
-        global LOCAL_LLM_MODEL_NAME, local_llm
-        new_model = data.get('model_name')
-        if new_model and new_model.strip():
-            LOCAL_LLM_MODEL_NAME = new_model
-            print(f"INFO: Local LLM model set to: {LOCAL_LLM_MODEL_NAME}")
-            with llm_lock:
-                local_llm = None  # Invalidate to force reloading the new model
+
+        global CURRENT_LOCAL_LLM_MODEL_NAME, local_llm
+        new_model = data.get('model_name', '').strip()
+
+        if new_model:
+            CURRENT_LOCAL_LLM_MODEL_NAME = new_model
+            print(f"INFO: Local LLM model set to: {CURRENT_LOCAL_LLM_MODEL_NAME}")
         else:
-            print("WARN: Attempted to set an empty local model name.")
-            print("WARN: Attempted to set an empty local model name.")
+            CURRENT_LOCAL_LLM_MODEL_NAME = DEFAULT_LOCAL_LLM_MODEL_NAME
+            print(f"INFO: Local LLM model cleared. Reverting to default: {CURRENT_LOCAL_LLM_MODEL_NAME}")
+
+        with llm_lock:
+            local_llm = None  # Invalidate to force reloading
         emit_status_update()
 
     @socketio.on('client_ready')
@@ -220,7 +230,7 @@ def create_app():
     @socketio.on('get_summary')
     def on_get_summary(data):
 
-        global local_llm, remote_llm, LLM_API_KEY, LLM_API_URL, LOCAL_LLM_MODEL_NAME
+        global local_llm, remote_llm, LLM_API_KEY, CURRENT_LLM_API_URL, CURRENT_LOCAL_LLM_MODEL_NAME
 
         use_llm_mode = int(data.get("use_llm", 0))  # Default to 0 (heuristic)
         active_llm = None
@@ -232,7 +242,7 @@ def create_app():
                     print("INFO: Initializing and loading the local LLM...")
                     emit('summary_status', {'status': 'loading_model', 'message': 'Local AI model is loading...'})
                     try:
-                        local_llm = LocalLLM(model_name=LOCAL_LLM_MODEL_NAME)
+                        local_llm = LocalLLM(model_name=CURRENT_LOCAL_LLM_MODEL_NAME)
                         print("INFO: Local LLM loaded successfully.")
                     except Exception as e:
                         print(f"FATAL: Failed to load local LLM: {e}", file=sys.stderr)
@@ -251,7 +261,7 @@ def create_app():
                     print("INFO: Initializing remote LLM client with API key...")
                     try:
                         # MODIFIED: Pass both the key and URL from our global config
-                        remote_llm = RemoteLLM(api_key=LLM_API_KEY, api_url=LLM_API_URL)
+                        remote_llm = RemoteLLM(api_key=LLM_API_KEY, api_url=CURRENT_LLM_API_URL)
                         print("INFO: Remote LLM client is ready.")
                     except Exception as e:
                         print(f"ERROR: Failed to initialize Remote LLM client: {e}", file=sys.stderr)

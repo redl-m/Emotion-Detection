@@ -214,7 +214,7 @@ button.track-button.active {
 
 .llm-slider-option {
     flex: 1;
-/*padding: 6 px 12 px;*/
+    /*padding: 6 px 12 px;*/
     padding: 0.5rem;
     text-align: center;
     cursor: pointer;
@@ -444,7 +444,7 @@ path.line-ts {
     border: 1px solid var(--border-color);
 }
 
-.group-header, .settings-tile h3 {
+.group-header {
     font-size: 0.9rem;
     font-weight: 500;
     color: var(--text-muted);
@@ -457,7 +457,12 @@ path.line-ts {
 }
 
 .settings-tile h3 {
-    margin-bottom: 1rem;
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    border: none;
+    padding: 0;
 }
 
 .status-tile {
@@ -467,6 +472,36 @@ path.line-ts {
     font-size: 0.9rem;
     padding: 0.75rem 0;
 }
+
+/* Tile header wrapper */
+.tile-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1rem;
+}
+
+/* Link to huggingface models */
+.tile-link {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--accent-color);
+    text-decoration: none;
+    background-color: var(--button-bg);
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    transition: background-color 0.2s ease, color 0.2s ease;
+    white-space: nowrap;
+}
+
+.tile-link:hover {
+    background-color: var(--button-hover-bg);
+    color: var(--text-color);
+}
+
 
 .status-tile span:first-child {
     color: var(--text-muted);
@@ -598,6 +633,7 @@ path.line-ts {
     line-height: 1;
     transition: color 0.2s ease;
 }
+
 .close-button:hover {
     color: var(--text-color);
 }
@@ -628,6 +664,7 @@ path.line-ts {
     color: var(--text-muted);
     font-size: 0.9rem;
 }
+
 .participant-item:hover {
     border-color: var(--accent-color);
     color: var(--text-color);
@@ -666,6 +703,7 @@ path.line-ts {
     color: var(--text-color);
     font-size: 0.9rem;
 }
+
 .name-prompt input:focus {
     border-color: var(--accent-color);
     outline: none;
@@ -695,9 +733,11 @@ path.line-ts {
     color: #fff;
     border-color: var(--accent-color);
 }
+
 .modal-button-primary:hover:not(:disabled) {
     background-color: var(--accent-hover);
 }
+
 .modal-button-primary:disabled {
     background-color: var(--disabled-bg);
     border-color: var(--disabled-bg);
@@ -709,13 +749,61 @@ path.line-ts {
     background-color: var(--button-bg);
     color: var(--text-color);
 }
+
 .modal-button-secondary:hover {
     background-color: var(--button-hover-bg);
 }
 
+/* ==========================================================================
+   6. DROP-DOWN LLM MODEL AND API URL HISTORY
+   ========================================================================== */
+.history-container {
+    position: relative;
+}
+
+/* Dropdown list */
+.history-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    z-index: 1000;
+    max-height: 200px;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Dropdown items */
+.history-item {
+    padding: 0.6rem 0.75rem;
+    cursor: pointer;
+    color: var(--text-color);
+    font-size: 0.9rem;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s ease;
+}
+
+.history-item:last-child {
+    border-bottom: none;
+}
+
+.history-item:hover {
+    background-color: var(--button-hover-bg);
+}
+
+/* Default item style */
+.history-item.default {
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
 
 /* ==========================================================================
-   6. RESPONSIVE DESIGN
+   7. RESPONSIVE DESIGN
    ========================================================================== */
 @media (max-width: 1280px) {
     main {

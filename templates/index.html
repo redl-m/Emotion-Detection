@@ -145,7 +145,9 @@
             </div>
 
             <div class="settings-tile chart-container">
-                <h3>API Key</h3>
+                <div class="tile-header">
+                    <h3>API Key</h3>
+                </div>
                 <div class="settings-input-group">
                     <input type="password" id="apiKeyInput" placeholder="Enter new API Key">
                     <button id="setApiKeyBtn">Set</button>
@@ -153,41 +155,55 @@
             </div>
 
             <div class="settings-tile chart-container">
-                <h3>API URL</h3>
-                <div class="settings-input-group">
-                    <input type="text" id="apiUrlInput" placeholder="Enter new API URL">
+                <div class="tile-header">
+                    <h3>API URL</h3>
+                </div>
+                <div class="settings-input-group history-container"><input type="text" id="apiUrlInput"
+                                                                           placeholder="Enter new API URL"
+                                                                           autocomplete="off">
                     <button id="setApiUrlBtn">Set</button>
+                    <div id="apiUrlHistory" class="history-dropdown"></div>
                 </div>
             </div>
 
             <div class="settings-tile chart-container">
-                <h3>Local LLM Model</h3>
-                <div class="settings-input-group">
-                    <input type="text" id="localModelInput" placeholder="Enter model name">
+                <div class="tile-header">
+                    <h3>Local LLM Model</h3>
+                    <a href="https://huggingface.co/models" target="_blank" class="tile-link">Browse Models</a>
+                </div>
+                <div class="settings-input-group history-container">
+                    <input type="text" id="localModelInput"
+                           placeholder="Enter model name"
+                           autocomplete="off">
                     <button id="setLocalModelBtn">Set</button>
+                    <div id="localModelHistory" class="history-dropdown"></div>
                 </div>
             </div>
+
+
         </aside>
 
         <div id="mergeModal" class="modal-overlay" style="display: none;">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h2>Merge Faces</h2>
-            <button id="closeMergeModalBtn" class="close-button">&times;</button>
-        </div>
-        <p>Select multiple people to merge. The first person selected (highlighted in green) will be the target that others are merged into.</p>
-        <div id="mergeParticipantList" class="participant-grid">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Merge Faces</h2>
+                    <button id="closeMergeModalBtn" class="close-button">&times;</button>
+                </div>
+                <p>Select multiple people to merge. The first person selected (highlighted in green) will be the target
+                    that others are merged into.</p>
+                <div id="mergeParticipantList" class="participant-grid">
+                </div>
+                <div id="mergeNamePrompt" class="name-prompt" style="display: none;">
+                    <label for="newPersonName">Multiple people have different names. Please enter a name for the merged
+                        person:</label>
+                    <input type="text" id="newPersonName" name="newPersonName" placeholder="Enter new name...">
+                </div>
+                <div class="modal-actions">
+                    <button id="cancelMergeBtn" class="modal-button-secondary">Cancel</button>
+                    <button id="confirmMergeBtn" class="modal-button-primary" disabled>Confirm Merge</button>
+                </div>
             </div>
-        <div id="mergeNamePrompt" class="name-prompt" style="display: none;">
-            <label for="newPersonName">Multiple people have different names. Please enter a name for the merged person:</label>
-            <input type="text" id="newPersonName" name="newPersonName" placeholder="Enter new name...">
         </div>
-        <div class="modal-actions">
-            <button id="cancelMergeBtn" class="modal-button-secondary">Cancel</button>
-            <button id="confirmMergeBtn" class="modal-button-primary" disabled>Confirm Merge</button>
-        </div>
-    </div>
-</div>
     </main>
 </div>
 
