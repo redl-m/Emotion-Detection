@@ -38,7 +38,7 @@ html, body {
 }
 
 body {
-    font-family: var(--font-family);
+    font-family: var(--font-family), sans-serif;
     background-color: var(--bg-color);
     color: var(--text-color);
     display: flex;
@@ -190,7 +190,7 @@ button.track-button {
     min-width: 150px;
     background-color: var(--accent-color);
     border-color: var(--accent-color);
-    color: white;
+    color: var(--text-color);
 }
 
 button.track-button:hover:not(:disabled) {
@@ -221,25 +221,43 @@ button.track-button.active {
     cursor: pointer;
     z-index: 2;
     transition: color 0.3s ease;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
+    font-weight: 500;
     color: var(--text-color);
     white-space: nowrap;
+    border-radius: 6px;
+
+    &:hover {
+        background-color: #383841;
+    }
+
+    &:active {
+        transform: scale(0.97);
+    }
 }
 
 
 .llm-slider-option.disabled {
-    opacity: 0.4;
+    background-color: var(--disabled-bg);
+    border-color: var(--disabled-bg);
+    color: var(--disabled-color);
     pointer-events: none;
     cursor: not-allowed;
-    color: var(--text-muted);
+    transform: none;
 }
 
 
 .llm-slider-option.selected {
     color: var(--text-color);
-    background-color: var(--accent-hover);
-    border-radius: 6px;
-    font-weight: 500;
+    background-color: var(--accent-color);
+
+    &:hover {
+        background-color: var(--accent-hover);
+    }
+
+    &:active {
+        transform: scale(0.97);
+    }
 }
 
 .llm-slider-indicator {
@@ -273,7 +291,7 @@ button.track-button.active {
 
 .participant-selector .p-btn.selected {
     background-color: #444;
-    color: white;
+    color: var(--text-color);
     font-weight: 500;
 }
 
@@ -551,19 +569,23 @@ path.line-ts {
 .tile-link {
     font-size: 0.8rem;
     font-weight: 500;
-    color: var(--accent-color);
+    background-color: var(--accent-color);
+    color: var(--text-color);
     text-decoration: none;
-    background-color: var(--button-bg);
     padding: 0.35rem 0.75rem;
     border-radius: 6px;
     border: 1px solid var(--border-color);
     transition: background-color 0.2s ease, color 0.2s ease;
     white-space: nowrap;
-}
 
-.tile-link:hover {
-    background-color: var(--button-hover-bg);
-    color: var(--text-color);
+    &:hover {
+        background-color: var(--accent-hover);
+        color: var(--text-color);
+    }
+
+    &:active {
+        transform: scale(0.97);
+    }
 }
 
 
@@ -737,13 +759,13 @@ path.line-ts {
 .participant-item.selected {
     background-color: var(--accent-color);
     border-color: var(--accent-color);
-    color: white;
+    color: var(--text-color);
 }
 
 .participant-item.target {
     background-color: var(--status-green);
     border-color: var(--status-green);
-    color: white;
+    color: var(--text-color);
 }
 
 .color-swatch {
