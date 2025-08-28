@@ -3,11 +3,12 @@ import sys
 import json
 import base64
 import numpy as np
-from flask import Flask, render_template
-from flask_socketio import SocketIO, emit
+from flask import render_template
+from flask_socketio import emit
 import cv2
 import torch
 import threading
+import multiprocessing as mp
 
 # --- Path Setup ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -15,21 +16,41 @@ sys.path.insert(0, project_root)
 
 # --- Local Imports ---
 from model.model import EmotionCNN
-from server.analysis import FaceReIDTracker, LocalLLM, RemoteLLM, analyze_frame, generate_summary_payload
+from server.analysis import FaceReIDTracker, RemoteLLM, analyze_frame, llm_process_worker, generate_summary_payload, \
+    LocalLLM
+from server.extensions import socketio, app, APP_STATE, LLM_API_KEY, DEFAULT_LLM_API_URL, DEFAULT_LOCAL_LLM_MODEL_NAME
+
 
 # --- Global State for the Worker Thread ---
 frame_lock = threading.Lock()
 latest_frame_data = None
+
+# --- Global State for LLM Process Management ---
+llm_process = None
+task_queue = mp.Queue()
+result_queue = mp.Queue()
+status_queue = mp.Queue()
+llm_process_lock = threading.RLock() # To protect access to the llm_process object, RLock to allow nested calls for restart_and_summarize
+
+# --- State for pending summary after model reload ---
+pending_summary_task = None
+pending_summary_lock = threading.Lock() # Protects access to the pending_summary_task variable
 
 # --- Global LLM instances ---
 local_llm = None
 remote_llm = None
 llm_lock = threading.Lock()
 
+# --- Global State for Cancellable Summary Generation ---
+summary_thread = None
+cancel_summary_flag = threading.Event()
+summary_lock = threading.Lock()
+
+# --- State for background model loading ---
+model_loader_thread = None
+is_model_loading = threading.Event()
+
 # --- Global Settings Configuration ---
-LLM_API_KEY = None
-DEFAULT_LLM_API_URL = "https://api.openai.com/v1/chat/completions"
-DEFAULT_LOCAL_LLM_MODEL_NAME = "tiiuae/falcon-7b-instruct"
 CURRENT_LLM_API_URL = DEFAULT_LLM_API_URL
 CURRENT_LOCAL_LLM_MODEL_NAME = DEFAULT_LOCAL_LLM_MODEL_NAME
 
@@ -48,10 +69,6 @@ def create_app():
 
     :return: A tuple (socketio, app) with the configured SocketIO server and Flask application.
     """
-    app = Flask(__name__, template_folder=os.path.join(project_root, 'templates'),
-                static_folder=os.path.join(project_root, 'static'))
-    app.config['SECRET_KEY'] = 'secret-emotion-key!'
-    socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 
     # --- Server State ---
     # Load the ML model
@@ -64,6 +81,79 @@ def create_app():
     tracker = FaceReIDTracker(tolerance=0.55)
     tracking_data = {}
     emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral']
+
+
+    def result_monitor():
+        """Monitors the result queue and emits results back to the client via SocketIO."""
+        print("INFO: Result queue monitor thread started.")
+        while True:
+            try:
+                result = result_queue.get()
+
+                person_id = result.get('person_id')
+                summary_text = result.get('summary')
+                error = result.get('error')
+
+                if error:
+                    print(f"ERROR from LLM worker: {error}", file=sys.stderr)
+                    socketio.emit('summary_status',
+                                  {'status': 'error', 'message': f'LLM Worker Error: An error occurred.'})
+                    continue
+
+                if person_id is not None and person_id in tracking_data:
+                    # Look up the person's metadata from the tracker:
+                    person_metadata = next((meta for meta in tracker.known_face_metadata if meta['id'] == person_id),
+                                           None)
+                    person_name = person_metadata['name'] if person_metadata else f"Person {person_id}"
+
+                    # Retrieve the raw data collected for this person:
+                    person_data = tracking_data[person_id]
+                    emotions = person_data.get('emotions', [])
+                    engagements = person_data.get('engagement', [])
+
+                    # Calculate the required aggregated values:
+
+                    # Total detections is the count of recorded emotions.
+                    total_detections = len(emotions)
+
+                    # Average engagement is the sum of engagement scores divided by the count.
+                    avg_engagement = round(sum(engagements) / len(engagements), 2) if engagements else 0.0
+
+                    # Emotion distribution is the frequency of each emotion.
+                    # Assumes 7 emotion categories, indexed 0 through 6.
+                    distribution_counts = [0] * 7
+                    for emotion_index in emotions:
+                        if 0 <= emotion_index < 7:
+                            distribution_counts[emotion_index] += 1
+
+                    # Normalize the counts to get a distribution between 0.0 and 1.0.
+                    distribution = [round(count / total_detections, 4) for count in
+                                    distribution_counts] if total_detections > 0 else [0.0] * 7
+
+                    # Assemble the final payload in the desired format:
+                    final_payload = {
+                        person_id: {
+                            'id': person_id,
+                            'name': person_name,
+                            'narrative_summary': summary_text,
+                            'distribution': distribution,
+                            'total_detections': total_detections,
+                            'average_engagement': avg_engagement
+                        }
+                    }
+
+                    # print("Emitted json.dumps for local LLM: " + str(final_payload))
+                    socketio.emit('tracking_summary', json.dumps(final_payload))
+
+                    # Use the person_name variable for the success message.
+                    socketio.emit('summary_status', {
+                        'status': 'success',
+                        'message': f'Summary for {person_name} generated.'
+                    })
+
+            except Exception as e:
+                print(f"Error in result monitor thread: {e}", file=sys.stderr)
+            socketio.sleep(0.1)
 
     # --- Worker Thread for Frame Processing ---
     def analysis_worker():
@@ -115,8 +205,10 @@ def create_app():
             "local_model_name": CURRENT_LOCAL_LLM_MODEL_NAME,
             "default_api_url": DEFAULT_LLM_API_URL,
             "default_local_model_name": DEFAULT_LOCAL_LLM_MODEL_NAME,
+            "local_model_ready": APP_STATE.get("local_model_ready")
         }
-        emit('status_update', status)
+        socketio.emit('status_update', status)
+
 
     @socketio.on('connect')
     def on_connect():
@@ -168,23 +260,79 @@ def create_app():
             remote_llm = None  # Invalidate to force recreation
         emit_status_update()
 
-    # Handler for setting the local LLM model
     @socketio.on('set_local_model')
     def on_set_local_model(data):
+        global llm_process, CURRENT_LOCAL_LLM_MODEL_NAME
 
-        global CURRENT_LOCAL_LLM_MODEL_NAME, local_llm
-        new_model = data.get('model_name', '').strip()
+        with llm_process_lock:
+            new_model_name = data.get('model_name', '').strip()
+            if not new_model_name:
+                new_model_name = DEFAULT_LOCAL_LLM_MODEL_NAME # This currently prevents clearing the input
 
-        if new_model:
-            CURRENT_LOCAL_LLM_MODEL_NAME = new_model
-            print(f"INFO: Local LLM model set to: {CURRENT_LOCAL_LLM_MODEL_NAME}")
-        else:
-            CURRENT_LOCAL_LLM_MODEL_NAME = DEFAULT_LOCAL_LLM_MODEL_NAME
-            print(f"INFO: Local LLM model cleared. Reverting to default: {CURRENT_LOCAL_LLM_MODEL_NAME}")
+            # Terminate the old process if it exists
+            if llm_process and llm_process.is_alive():
+                print(f"INFO: Terminating old LLM worker process (PID: {llm_process.pid}).")
+                llm_process.terminate()
+                llm_process.join(timeout=5)  # Wait a bit for it to clean up
+                if llm_process.is_alive():
+                    print(f"WARNING: Process {llm_process.pid} did not terminate gracefully. Killing.")
+                    llm_process.kill()  # Force kill if terminate fails
 
-        with llm_lock:
-            local_llm = None  # Invalidate to force reloading
+                # Drain the queues to prevent old tasks/results from interfering
+                while not task_queue.empty(): task_queue.get_nowait()
+                while not result_queue.empty(): result_queue.get_nowait()
+
+            CURRENT_LOCAL_LLM_MODEL_NAME = new_model_name
+            print(f"INFO: Starting new LLM worker process for model: {new_model_name}")
+            emit('summary_status',
+                 {'status': 'initializing', 'message': f'Starting new LLM worker process for model: {new_model_name}.'})
+
+            # Create and start the new worker process
+            llm_process = mp.Process(
+                target=llm_process_worker,
+                args=(task_queue, result_queue, status_queue, new_model_name)
+            )
+            llm_process.start()
+
+        socketio.start_background_task(target=queue_listener, queue=status_queue)
+        socketio.start_background_task(target=result_monitor())
         emit_status_update()
+
+    # Listener that runs in the main process using IPC
+    def queue_listener(queue):
+        """
+        Listens to the result queue and emits socketio messages.
+        This runs in a background THREAD in the main process.
+        """
+        global pending_summary_task
+
+        print("INFO: Queue listener started.")
+        while True:
+            try:
+                message = queue.get()  # Blocks until a message is available
+                message_type = message.get('type')
+                # Status update
+                if message_type == 'status':
+                    print(f"INFO: Received status from worker via IPC: {message['payload']}")
+                    socketio.emit('summary_status', message['payload'])
+                # Backend local llm model ready update
+                elif message_type == 'local_llm_model_ready':
+                    is_ready = message.get('payload', False)
+                    print(f"INFO: Backend communication received model readiness update from worker. Model ready: {is_ready}")
+                    APP_STATE["local_model_ready"] = is_ready
+                    emit_status_update()
+                    # Model is ready after pending summary tasks TODO: buggy behavior
+                    if is_ready:
+                        with pending_summary_lock:
+                            if pending_summary_task is not None:
+                                print("INFO: Model is ready after restart, executing pending summary task.")
+                                # Call the summary function with the stored data
+                                on_get_summary(pending_summary_task)
+                                # Clear the task so it doesn't run again
+                                pending_summary_task = None
+            except Exception as e:
+                print(f"ERROR in queue_listener: {e}")
+
 
     @socketio.on('client_ready')
     def on_client_ready():
@@ -229,68 +377,138 @@ def create_app():
 
     @socketio.on('get_summary')
     def on_get_summary(data):
-
-        global local_llm, remote_llm, LLM_API_KEY, CURRENT_LLM_API_URL, CURRENT_LOCAL_LLM_MODEL_NAME
-
+        """
+        Handles the client's request to generate a summary.
+        Delegates the task based on the selected mode.
+        """
         use_llm_mode = int(data.get("use_llm", 0))
-        active_llm = None
-        print(f"INFO: Summary requested with mode: {use_llm_mode}")
 
-        with llm_lock:
-            if use_llm_mode == 1:  # Use Local LLM
-                if local_llm is None:
-                    print("INFO: Initializing and loading the local LLM...")
-                    emit('summary_status', {'status': 'loading_model', 'message': 'Local AI model is loading...'})
-                    try:
-                        local_llm = LocalLLM(model_name=CURRENT_LOCAL_LLM_MODEL_NAME)
-                        print("INFO: Local LLM loaded successfully.")
-                        # Send confirmation to the client that this model name is valid.
-                        emit('setting_validated', {'type': 'local_model', 'value': CURRENT_LOCAL_LLM_MODEL_NAME})
-                    except Exception as e:
-                        print(f"FATAL: Failed to load local LLM: {e}", file=sys.stderr)
-                        emit('summary_status', {'status': 'error', 'message': f'Failed to load Local AI model: {e}'})
-                        return
-                active_llm = local_llm
-
-            elif use_llm_mode == 2:  # Use Remote LLM via API
-                if not LLM_API_KEY:
-                    print("WARN: API key requested, but none is set.")
+        # --- Mode 1: Local LLM via Multiprocessing ---
+        if use_llm_mode == 1:
+            with llm_process_lock:
+                if not llm_process or not llm_process.is_alive():
                     emit('summary_status',
-                         {'status': 'error', 'message': 'API Key is not set. Please set the key and try again.'})
+                         {'status': 'error', 'message': 'Local LLM process is not running. Please set a model.'})
                     return
 
-                if remote_llm is None:
-                    print("INFO: Initializing remote LLM client with API key...")
-                    try:
-                        remote_llm = RemoteLLM(api_key=LLM_API_KEY, api_url=CURRENT_LLM_API_URL)
-                        print("INFO: Remote LLM client is ready.")
-                        # Send confirmation to the client that this API URL is valid.
-                        emit('setting_validated', {'type': 'api_url', 'value': CURRENT_LLM_API_URL})
-                    except Exception as e:
-                        print(f"ERROR: Failed to initialize Remote LLM client: {e}", file=sys.stderr)
-                        emit('summary_status', {'status': 'error', 'message': f'Failed to setup API client: {e}'})
-                        return
-                active_llm = remote_llm
+            tasks_sent = 0
+            for person_id, p_data in tracking_data.items():
+                if len(p_data.get('emotions', [])) >= 5:
+                    # The tracker holds the ID-to-name mapping.
+                    person_metadata = next((meta for meta in tracker.known_face_metadata if meta['id'] == person_id),
+                                           None)
+                    if not person_metadata:
+                        print(f"WARNING: Could not find name for person_id {person_id}. Skipping summary.")
+                        continue  # Skip this person if their metadata isn't found
 
-        # --- Summary Generation ---
-        if use_llm_mode > 0:
-            emit('summary_status', {'status': 'generating', 'message': 'Model loaded. Generating summary...'})
+                    person_name = person_metadata['name']
+
+                    task = {
+                        "person_name": person_name,
+                        "emotions_sequence": p_data['emotions'],
+                        "emotion_labels": emotion_labels,
+                        "engagement_sequence": p_data.get('engagement'),
+                        "person_id": person_id
+                    }
+                    task_queue.put(task)
+                    tasks_sent += 1 # TODO: maybe send this to the llm_process_worker instead of the while true loop?
+
+            if tasks_sent > 0:
+                print(f"INFO: Sent {tasks_sent} summary task(s) to the LLM worker process.")
+                emit('summary_status', {'status': 'generating', 'message': f'Sent {tasks_sent} task(s) to LLM worker.'})
+            else:
+                emit('summary_status', {'status': 'error', 'message': 'No one had enough data for a summary.'})
+
+
+        # --- Modes 0 & 2: Heuristic and Remote API via Threading ---
         else:
-            emit('summary_status', {'status': 'generating', 'message': 'Generating heuristic summary...'})
+            def threaded_summary_worker():
+                try:
+                    active_llm = None
+                    if use_llm_mode == 2:
+                        global remote_llm
+                        with llm_lock:
+                            if not LLM_API_KEY:
+                                raise ValueError("API Key is not set.")
+                            if remote_llm is None:
+                                socketio.emit('summary_status',
+                                              {'status': 'calling_api', 'message': 'Initializing remote LLM client...'})
+                                remote_llm = RemoteLLM(api_key=LLM_API_KEY, api_url=CURRENT_LLM_API_URL)
+                                print("INFO: Remote LLM client is ready.")
+                        active_llm = remote_llm
 
-        print("INFO: Generating summary payload...")
-        summary_payload = generate_summary_payload(
-            tracking_data,
-            tracker,
-            emotion_labels,
-            llm=active_llm
-        )
-        emit('tracking_summary', json.dumps(summary_payload))
-        print("INFO: Summary generated and sent.")
+                    socketio.emit('summary_status', {'status': 'generating', 'message': 'Generating summary...'})
+
+                    summary_payload = generate_summary_payload(
+                        tracking_data, tracker, emotion_labels, llm=active_llm
+                    )
+
+                    socketio.emit('tracking_summary', json.dumps(summary_payload))
+
+                    # print("DEBUG: Emitted json.dumps for Heuristic/Remote LLM: " + str(summary_payload))
+
+                    success_message = "Heuristic summary generated successfully."
+                    if use_llm_mode == 2:
+                        success_message = "Summary generated from remote API successfully."
+
+                    socketio.emit('summary_status', {'status': 'success', 'message': success_message})
+                    print("INFO: Heuristic/Remote summary generated and sent.")
+
+                except Exception as e:
+                    print(f"ERROR: Error in threaded summary worker: {e}", file=sys.stderr)
+                    socketio.emit('summary_status', {'status': 'error', 'message': f'An error occurred: {str(e)}'})
+
+            socketio.start_background_task(target=threaded_summary_worker)
+
+    @socketio.on('cancel_summary')
+    def on_cancel_summary():
+        with llm_process_lock:
+            if llm_process and llm_process.is_alive():
+                print(f"INFO: User requested cancellation. Terminating LLM worker process (PID: {llm_process.pid}).")
+                llm_process.terminate()
+                llm_process.join(timeout=2)
+                emit('summary_status', {'status': 'cancelled', 'message': 'LLM process has been terminated.'})
+            else:
+                print("INFO: User requested cancellation, but no LLM process was running.")
+
+    @socketio.on('restart_and_summarize')
+    def on_restart_and_summarize(data):
+        """
+        Handles a request to generate a summary, reloading the model only if necessary.
+        """
+        global pending_summary_task
+
+        with llm_process_lock:
+            # Check if a process is already running and the model has confirmed it's ready.
+            if llm_process and llm_process.is_alive() and APP_STATE.get("local_model_ready"):
+                print("INFO: LLM process is already ready. Reusing for new summary.")
+                # TODO: Results in weird behavior: killing old task and starting a new one eventually
+                on_get_summary(data)
+
+        # Reload logic
+
+        print("INFO: LLM process not ready. Starting reload and queuing summary task.")
+
+        with pending_summary_lock:
+            # Store the summary request as a pending task.
+            pending_summary_task = {"use_llm": data.get("use_llm", 1)}
+
+        # Kick off the model loading process. The queue_listener will trigger the summary when it's ready.
+        on_set_local_model({'model_name': data.get('model_name', DEFAULT_LOCAL_LLM_MODEL_NAME)})
+
+
+    # --- Start the result monitor thread when the app starts up ---
+    if not hasattr(app, 'result_monitor_started'):
+        socketio.start_background_task(target=result_monitor)
+        app.result_monitor_started = True
 
     return socketio, app
 
 
 if __name__ == '__main__':
+    # --- IMPORTANT: Set start method for multiprocessing ---
+    # Must be 'spawn' for CUDA compatibility and placed inside the main guard
+    mp.set_start_method('spawn', force=True)
+
     socketio, app = create_app()
     socketio.run(app, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)

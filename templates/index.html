@@ -117,9 +117,14 @@
                     <div class="group-status-indicator" id="localLlmGroupStatus"></div>
                 </div>
                 <div class="status-tile">
-                    <span>Model</span>
-                    <span class="status-text" id="localLlmStatusText">Not Present</span>
-                    <div class="status-indicator" id="localLlmStatusIndicator"></div>
+                    <span>Model Name</span>
+                    <span class="status-text" id="localLlmStatusModelNameText">Not Present</span>
+                    <div class="status-indicator" id="localLlmModelNameStatusIndicator"></div>
+                </div>
+                <div class="status-tile">
+                    <span>Model Availability</span>
+                    <span class="status-text" id="localLlmModelStatusText">Not Loaded</span>
+                    <div class="status-indicator" id="localLlmModelStatusIndicator"></div>
                 </div>
                 <div class="status-tile">
                     <span>CUDA</span>
@@ -145,6 +150,33 @@
                 </div>
             </div>
 
+            <div class="status-group-container chart-container" id="llmComputationTile" style="display: none;">
+                <div class="group-header">
+                    <h3 id = "llmHeaderText">LLM Computation Status</h3>
+                    <div class="group-status-indicator status-warning" id="llmStatusIndicator"></div>
+                </div>
+                <div class="status-tile">
+                    <span class="status-text" id="llmStatusText" style="font-style: italic;">Starting...</span>
+                </div>
+                <div class="settings-input-group" style="justify-content: center;">
+                    <button id="cancelSummaryBtn" class="control-button">Cancel Summary</button>
+                </div>
+            </div>
+
+            <div class="settings-tile chart-container">
+                <div class="tile-header">
+                    <h3>Local LLM Model</h3>
+                    <a href="https://huggingface.co/models" target="_blank" class="tile-link">Browse Models</a>
+                </div>
+                <div class="settings-input-group history-container">
+                    <input type="text" id="localModelInput"
+                           placeholder="Enter model name"
+                           autocomplete="off">
+                    <button id="setLocalModelBtn">Set</button>
+                    <div id="localModelHistory" class="history-dropdown"></div>
+                </div>
+            </div>
+
             <div class="settings-tile chart-container">
                 <div class="tile-header">
                     <h3>API Key</h3>
@@ -166,22 +198,6 @@
                     <div id="apiUrlHistory" class="history-dropdown"></div>
                 </div>
             </div>
-
-            <div class="settings-tile chart-container">
-                <div class="tile-header">
-                    <h3>Local LLM Model</h3>
-                    <a href="https://huggingface.co/models" target="_blank" class="tile-link">Browse Models</a>
-                </div>
-                <div class="settings-input-group history-container">
-                    <input type="text" id="localModelInput"
-                           placeholder="Enter model name"
-                           autocomplete="off">
-                    <button id="setLocalModelBtn">Set</button>
-                    <div id="localModelHistory" class="history-dropdown"></div>
-                </div>
-            </div>
-
-
         </aside>
 
         <div id="mergeModal" class="modal-overlay" style="display: none;">

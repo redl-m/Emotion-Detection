@@ -8,9 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const FRAME_SEND_INTERVAL_MS = 200; // ~5 FPS
     const MAX_TIMESERIES_POINTS = 100;
     const poseEstimator = new HeadPoseEstimator();
-    const apiUrlHistory = document.getElementById('apiUrlHistory');
-    const localModelHistory = document.getElementById('localModelHistory');
+
     let useLLM;
+    let model;
     let defaultApiUrl = '';
     let defaultLocalModel = '';
 
@@ -30,16 +30,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // B. DOM Element Selectors
     // ---------------------------------------------------
     const dom = {
+        // Video and Canvas
         videoWrapper: document.getElementById('video-wrapper'),
         overlayCanvas: document.getElementById('overlayCanvas'),
         overlayCtx: document.getElementById('overlayCanvas').getContext('2d'),
+
+        // Placeholders and Loaders
         placeholder: document.getElementById('placeholder'),
         placeholderContent: document.getElementById('placeholder-content'),
         loader: document.getElementById('loader'),
+
+        // Main Controls
         uploadInput: document.getElementById('videoUpload'),
         liveBtn: document.getElementById('liveBtn'),
         trackBtn: document.getElementById('trackBtn'),
         trackBtnText: document.getElementById('trackBtnText'),
+        controlsBottom: document.querySelector('.controls-bottom'),
+
+        // Merging
         mergeBtn: document.getElementById('mergeBtn'),
         mergeModal: document.getElementById('mergeModal'),
         closeMergeModalBtn: document.getElementById('closeMergeModalBtn'),
@@ -48,7 +56,8 @@ document.addEventListener('DOMContentLoaded', () => {
         mergeParticipantList: document.getElementById('mergeParticipantList'),
         mergeNamePrompt: document.getElementById('mergeNamePrompt'),
         newPersonNameInput: document.getElementById('newPersonName'),
-        controlsBottom: document.querySelector('.controls-bottom'),
+
+        // Analysis and Reporting
         analysisSection: document.getElementById('analysis-section'),
         participantSelectors: {
             bar: document.getElementById('participant-selector-bar'),
@@ -57,26 +66,50 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         summaryContainer: document.getElementById('summary-container'),
         summaryReport: document.getElementById('summary-report'),
+
+        // History Lists
+        apiUrlHistory: document.getElementById('apiUrlHistory'),
+        localModelHistory: document.getElementById('localModelHistory'),
+
+        // LLM Computation Status (Refactored Tile)
+        llmComputation: {
+            tile: document.getElementById('llmComputationTile'),
+            statusText: document.getElementById('llmStatusText'),
+            statusIndicator: document.getElementById('llmStatusIndicator'),
+            cancelBtn: document.getElementById('cancelSummaryBtn'),
+            headerText: document.getElementById('llmHeaderText')
+        },
+
+        // API Connection Status
+        apiStatus: {
+            group: document.getElementById('apiGroupStatus'),
+            keyText: document.getElementById('apiKeyStatusText'),
+            keyIndicator: document.getElementById('apiKeyStatusIndicator'),
+            urlText: document.getElementById('apiUrlStatusText'),
+            urlIndicator: document.getElementById('apiUrlStatusIndicator')
+        },
+
+        // Local LLM Status
+        localLlmStatus: {
+            group: document.getElementById('localLlmGroupStatus'),
+            modelNameText: document.getElementById('localLlmStatusModelNameText'),
+            modelNameIndicator: document.getElementById('localLlmModelNameStatusIndicator'),
+            modelStatusText: document.getElementById('localLlmModelStatusText'),
+            modelStatusIndicator: document.getElementById('localLlmModelStatusIndicator'),
+            cudaText: document.getElementById('cudaStatusText'),
+            cudaIndicator: document.getElementById('cudaStatusIndicator')
+        },
+
+        // Settings Inputs & Buttons
+        settings: {
+            apiKeyInput: document.getElementById('apiKeyInput'),
+            setApiKeyBtn: document.getElementById('setApiKeyBtn'),
+            apiUrlInput: document.getElementById('apiUrlInput'),
+            setApiUrlBtn: document.getElementById('setApiUrlBtn'),
+            localModelInput: document.getElementById('localModelInput'),
+            setLocalModelBtn: document.getElementById('setLocalModelBtn')
+        }
     };
-
-    const apiKeyStatusText = document.getElementById('apiKeyStatusText');
-    const apiKeyStatusIndicator = document.getElementById('apiKeyStatusIndicator');
-    const apiUrlStatusText = document.getElementById('apiUrlStatusText');
-    const apiUrlStatusIndicator = document.getElementById('apiUrlStatusIndicator');
-    const apiGroupStatus = document.getElementById('apiGroupStatus');
-
-    const localLlmStatusText = document.getElementById('localLlmStatusText');
-    const localLlmStatusIndicator = document.getElementById('localLlmStatusIndicator');
-    const cudaStatusText = document.getElementById('cudaStatusText');
-    const cudaStatusIndicator = document.getElementById('cudaStatusIndicator');
-    const localLlmGroupStatus = document.getElementById('localLlmGroupStatus');
-
-    const apiKeyInput = document.getElementById('apiKeyInput');
-    const setApiKeyBtn = document.getElementById('setApiKeyBtn');
-    const apiUrlInput = document.getElementById('apiUrlInput');
-    const setApiUrlBtn = document.getElementById('setApiUrlBtn');
-    const localModelInput = document.getElementById('localModelInput');
-    const setLocalModelBtn = document.getElementById('setLocalModelBtn');
 
     // ---------------------------------------------------
     // C. Setup & Initialization
@@ -134,44 +167,62 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.cancelMergeBtn.addEventListener('click', closeMergeModal);
         dom.confirmMergeBtn.addEventListener('click', handleConfirmMerge);
 
-        setApiKeyBtn.addEventListener('click', () => {
-            const key = apiKeyInput.value;
+        dom.settings.setApiKeyBtn.addEventListener('click', () => {
+            const key = dom.settings.apiKeyInput.value;
             // The backend handles empty strings as "clearing" the key
             socket.emit('set_api_key', {key: key});
-            apiKeyInput.value = ''; // Clear input for security
-            apiKeyInput.placeholder = "API Key has been set";
+            dom.settings.apiKeyInput.value = ''; // Clear input for security
+            dom.settings.apiKeyInput.placeholder = "API Key has been set";
             setTimeout(() => {
-                apiKeyInput.placeholder = "Enter new API Key";
+                dom.settings.apiKeyInput.placeholder = "Enter new API Key";
             }, 2000);
         });
 
-        setApiUrlBtn.addEventListener('click', () => {
-            const url = apiUrlInput.value.trim();
+        dom.settings.setApiUrlBtn.addEventListener('click', () => {
+            const url = dom.settings.apiUrlInput.value.trim();
             socket.emit('set_api_url', {url: url});
-            apiUrlInput.value = ''; // Clear input field after setting
+            dom.settings.apiUrlInput.value = ''; // Clear input field after setting
         });
 
-        setLocalModelBtn.addEventListener('click', () => {
-            const model = localModelInput.value.trim();
+        dom.settings.setLocalModelBtn.addEventListener('click', () => {
+            model = dom.settings.localModelInput.value.trim();
             socket.emit('set_local_model', {model_name: model});
-            localModelInput.value = ''; // Clear input field after setting
+            dom.settings.localModelInput.value = ''; // Clear input field after setting
         });
 
         // Show history on input focus
-        apiUrlInput.addEventListener('focus', () => {
-            showHistory(apiUrlInput, apiUrlHistory, 'apiUrlHistory', defaultApiUrl);
+        dom.settings.apiUrlInput.addEventListener('focus', () => {
+            showHistory(dom.settings.apiUrlInput, dom.apiUrlHistory, 'apiUrlHistory', defaultApiUrl);
         });
-        localModelInput.addEventListener('focus', () => {
-            showHistory(localModelInput, localModelHistory, 'localModelHistory', defaultLocalModel);
+        dom.settings.localModelInput.addEventListener('focus', () => {
+            showHistory(dom.settings.localModelInput, dom.localModelHistory, 'localModelHistory', defaultLocalModel);
         });
 
         // Hide history when clicking outside
         document.addEventListener('click', (event) => {
-            if (!apiUrlInput.contains(event.target) && !apiUrlHistory.contains(event.target)) {
-                apiUrlHistory.style.display = 'none';
+            if (!dom.settings.apiUrlInput.contains(event.target) && !dom.apiUrlHistory.contains(event.target)) {
+                dom.apiUrlHistory.style.display = 'none';
             }
-            if (!localModelInput.contains(event.target) && !localModelHistory.contains(event.target)) {
-                localModelHistory.style.display = 'none';
+            if (!dom.settings.localModelInput.contains(event.target) && !dom.localModelHistory.contains(event.target)) {
+                dom.localModelHistory.style.display = 'none';
+            }
+        });
+
+        dom.llmComputation.cancelBtn.addEventListener('click', () => {
+            const buttonText = dom.llmComputation.cancelBtn.textContent;
+
+            if (buttonText === 'Cancel Summary') {
+                console.log('Cancel button clicked. Emitting cancel_summary.');
+                socket.emit('cancel_summary');
+                dom.llmComputation.statusText.textContent = 'Cancellation requested...';
+                updateLLMComputationStatusTile(true, false, true, true);
+            } else if (buttonText === 'Summarize Again') {
+                console.log(`'Summarize Again' clicked. Restarting with mode: ${useLLM}`);
+                socket.emit('restart_and_summarize', { // TODO: only if useLLM === 1 or handle in backend
+                    model_name: model,
+                    use_llm: useLLM
+                });
+                updateLLMComputationStatusTile(true, false, false, true);
             }
         });
 
@@ -185,16 +236,16 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('status_update', (data) => {
             console.log('Received status update:', data);
             updateApiStatus(data.api_key_present, data.api_url_present);
-            updateLocalLlmStatus(data.local_model_present, data.cuda_available);
+            updateLocalLlmStatus(data.local_model_present, data.cuda_available, data.local_model_ready);
             // Populate the input fields with current values from the server
-            if (data.api_url) apiUrlInput.value = data.api_url;
-            if (data.local_model_name) localModelInput.value = data.local_model_name;
+            if (data.api_url) dom.settings.apiUrlInput.value = data.api_url;
+            if (data.local_model_name) dom.settings.localModelInput.value = data.local_model_name;
             // Store default values from the backend
             defaultApiUrl = data.default_api_url;
             defaultLocalModel = data.default_local_model_name;
             // Update placeholders to show the *currently active* setting
-            apiUrlInput.placeholder = `Current: ${data.api_url}`;
-            localModelInput.placeholder = `Current: ${data.local_model_name}`;
+            dom.settings.apiUrlInput.placeholder = `Current: ${data.api_url}`;
+            dom.settings.localModelInput.placeholder = `Current: ${data.local_model_name}`;
         });
         // Listener for valid LLM models and API URLs, which get stored in the local cache
         socket.on('setting_validated', (data) => {
@@ -212,6 +263,53 @@ document.addEventListener('DOMContentLoaded', () => {
                     addToHistory('localModelHistory', data.value);
                     console.log(`Added valid LLM Model to history: ${data.value}`);
                 }
+            }
+        });
+
+        // Listener for live summary status updates from the backend
+        socket.on('summary_status', (data) => {
+            console.log('Received summary status:', data);
+
+            dom.llmComputation.statusText.textContent = data.message;
+
+            // TODO: fix percentage transmission
+            if (data.status === 'file_downloading') {
+                console.log('Received percentage update: ' + data.percent_file);
+            }
+
+            // TODO: use updateTileStatus?
+            switch (data.status) {
+                case 'initializing':
+                case 'model_downloading':
+                case 'model_loading_from_cache':
+                    dom.localLlmStatus.modelStatusText.textContent = 'Loading';
+                    dom.localLlmStatus.group.className = 'status-indicator status-warning'
+                    dom.localLlmStatus.modelStatusIndicator.className = 'status-indicator status-warning';
+                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-warning'; // Yellow: In progress
+                    updateLLMComputationStatusTile(true, true, false, false);
+                    break;
+                case 'model_ready':
+                    dom.localLlmStatus.modelStatusText.textContent = 'Ready';
+                    dom.localLlmStatus.modelStatusIndicator.className = 'status-indicator status-present';
+                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-present';
+                    break;
+                case 'calling_api':
+                case 'generating':
+                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-warning';
+                    updateLLMComputationStatusTile(true, true);
+                    break;
+                case 'success':
+                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-present'; // Green: Success
+                    updateLLMComputationStatusTile(true, false);
+                    break;
+                case 'error':
+                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-not-present'; // Red: Error
+                    updateLLMComputationStatusTile(true, false, true);
+                    break;
+                case 'cancelled':
+                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-not-present'; // Red: Cancelled
+                    updateLLMComputationStatusTile(true, false);
+                    break;
             }
         });
     }
@@ -363,9 +461,24 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             dom.summaryContainer.classList.add('hidden');
             dom.summaryReport.innerHTML = '';
+
+            updateLLMComputationStatusTile(true, false, false, false);
+            // Hide status tile after two seconds
+            /*
+            TODO: if model is not yet loaded, but tracking session is already started:
+             wait for loading and then disappear after two seconds
+             */
+            setTimeout(() => {
+                dom.llmComputation.tile.style.display = 'none';
+            }, 2000);
             socket.emit('start_tracking');
             state.sendIntervalId = setInterval(sendFrame, FRAME_SEND_INTERVAL_MS);
         } else {
+            dom.llmComputation.statusText.textContent = 'Initializing...';
+            dom.llmComputation.statusIndicator.className = 'group-status-indicator status-warning'; // Yellow for in-progress
+            dom.llmComputation.tile.style.display = 'block';
+            updateLLMComputationStatusTile(true, true, false, false);
+            dom.llmComputation.cancelBtn.disabled = false;
             clearInterval(state.sendIntervalId);
             state.sendIntervalId = null;
             socket.emit("get_summary", {use_llm: useLLM});
@@ -1058,12 +1171,12 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function updateApiStatus(keyPresent, urlPresent) {
 
-        updateTileStatus(apiKeyStatusText, apiKeyStatusIndicator, keyPresent);
-        updateTileStatus(apiUrlStatusText, apiUrlStatusIndicator, urlPresent);
+        updateTileStatus(dom.apiStatus.keyText, dom.apiStatus.keyIndicator, keyPresent);
+        updateTileStatus(dom.apiStatus.urlText, dom.apiStatus.urlIndicator, urlPresent);
         const isApiReady = keyPresent && urlPresent;
         setSummaryOptionEnabled(2, isApiReady);
-        apiGroupStatus.classList.remove('status-present', 'status-not-present');
-        apiGroupStatus.classList.add(isApiReady ? 'status-present' : 'status-not-present');
+        dom.apiStatus.group.classList.remove('status-present', 'status-not-present');
+        dom.apiStatus.group.classList.add(isApiReady ? 'status-present' : 'status-not-present');
     }
 
 
@@ -1073,19 +1186,21 @@ document.addEventListener('DOMContentLoaded', () => {
      *
      * @param {boolean} modelPresent - Whether a local LLM model is available.
      * @param {boolean} cudaAvailable - Whether CUDA is available on the system.
+     * @param modelAvailability
      */
-    function updateLocalLlmStatus(modelPresent, cudaAvailable) {
+    function updateLocalLlmStatus(modelPresent, cudaAvailable, modelAvailability) {
 
-        updateTileStatus(localLlmStatusText, localLlmStatusIndicator, modelPresent);
-        updateTileStatus(cudaStatusText, cudaStatusIndicator, cudaAvailable, 'Available', 'Not Available');
-        localLlmGroupStatus.classList.remove('status-present', 'status-not-present', 'status-warning');
+        updateTileStatus(dom.localLlmStatus.modelNameText, dom.localLlmStatus.modelNameIndicator, modelPresent);
+        updateTileStatus(dom.localLlmStatus.modelStatusText, dom.localLlmStatus.modelStatusIndicator, modelAvailability);
+        updateTileStatus(dom.localLlmStatus.cudaText, dom.localLlmStatus.cudaIndicator, cudaAvailable, 'Available', 'Not Available');
+        dom.localLlmStatus.group.classList.remove('status-present', 'status-not-present', 'status-warning');
         setSummaryOptionEnabled(1, modelPresent);
-        if (modelPresent && cudaAvailable) {
-            localLlmGroupStatus.classList.add('status-present');
-        } else if (modelPresent && !cudaAvailable) {
-            localLlmGroupStatus.classList.add('status-warning');
+        if (modelPresent && modelAvailability && cudaAvailable) {
+            dom.localLlmStatus.group.classList.add('status-present');
+        } else if (modelPresent && modelAvailability && !cudaAvailable) {
+            dom.localLlmStatus.group.classList.add('status-warning');
         } else {
-            localLlmGroupStatus.classList.add('status-not-present');
+            dom.localLlmStatus.group.classList.add('status-not-present');
         }
     }
 
@@ -1183,6 +1298,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
         historyEl.style.display = 'block';
     };
+
+
+    /**
+     * Updates the local LLM computation status tile
+     * @param tileVisible true === tile is visible and by default, false otherwise
+     * @param isLoadingModel true === button displays "Cancel Summary", false === button displays "Summarize again" and by default
+     * @param buttonDisabled true === button is disabled, false otherwise and by default
+     * @param buttonVisible true === button is visible and by default, false otherwise
+     */
+    function updateLLMComputationStatusTile(tileVisible = true, isLoadingModel = false,
+                                            buttonDisabled = false, buttonVisible = true) {
+
+        if (!dom.llmComputation.cancelBtn) return; // safety check
+
+        // Entire tile is hidden
+        if (!tileVisible) {
+            dom.llmComputation.tile.style.display = 'none';
+            return;
+        }
+
+        // Handle button visibility
+        if (!buttonVisible) {
+            dom.llmComputation.cancelBtn.style.display = 'none';
+        } else {
+            dom.llmComputation.cancelBtn.style.display = 'block';
+        }
+
+        dom.llmComputation.tile.style.display = 'block';
+        dom.llmComputation.cancelBtn.disabled = buttonDisabled;
+        dom.llmComputation.headerText.textContent = isLoadingModel ? 'LLM Loading Status' : 'LLM Computation Status';
+        dom.llmComputation.cancelBtn.textContent = isLoadingModel ? 'Cancel Summary' : 'Summarize Again';
+    }
 
 
     // ---------------------------------------------------

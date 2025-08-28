@@ -1,13 +1,72 @@
+import os
 import sys
+import threading
+import traceback
+import io
+import re
+
+import huggingface_hub
 import numpy as np
 import cv2
 import torch
 import face_recognition
 from collections import OrderedDict, Counter
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+from huggingface_hub import hf_hub_download
+from huggingface_hub.hf_api import RepoFile
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, StoppingCriteria
 import time
 import requests
 import json
+from huggingface_hub import HfApi
+
+from server.extensions import LLM_API_KEY, DEFAULT_LLM_API_URL, DEFAULT_LOCAL_LLM_MODEL_NAME, APP_STATE
+
+
+def llm_process_worker(task_queue, result_queue, status_queue, model_name):
+    """
+    This function runs in a separate process. It initializes a LocalLLM
+    and then enters a loop, waiting for tasks and putting results back.
+    """
+    try:
+        print(f"[Worker-{os.getpid()}] Starting to load model: {model_name}")
+        local_llm = LocalLLM(model_name=model_name, status_queue=status_queue)
+        print(f"[Worker-{os.getpid()}] Model loaded successfully.")
+
+        while True:
+            task_data = task_queue.get()
+            print(f"DEBUG: [Worker-{os.getpid()}] Current task data: {task_data}")
+            if task_data is None:
+                break
+
+            print(f"[Worker-{os.getpid()}] Received generation task.")
+
+            # Pop 'person_id' from the task data: keep it to send back with the result
+            person_id = task_data.pop('person_id', None)
+
+            # Call the summary function with the remaining arguments.
+            status_queue.put({
+                'type': 'status',
+                'payload': {'status': 'generating', 'message': f'Generating summary.'}
+            })
+            summary_text = generate_ai_narrative_summary(**task_data, llm=local_llm)
+
+            # Put the result back in a dictionary, now including the person_id.
+            result_payload = {
+                "summary": summary_text,
+                "person_id": person_id
+            }
+            result_queue.put(result_payload)
+
+            # print("DEBUG: Entry added to queue: " + str(result_payload))  # The summary gets sent correctly
+
+            print(f"[Worker-{os.getpid()}] Task complete, result sent.")
+
+    except Exception as e:
+        error_message = f"LLM Worker Process Error: {e}\n{traceback.format_exc()}"
+        person_id_for_error = task_data.get('person_id') if 'task_data' in locals() else 'unknown'
+        result_queue.put({"error": error_message, "person_id": person_id_for_error})
+        print(error_message, file=sys.stderr)
 
 
 class FaceReIDTracker:
@@ -118,13 +177,92 @@ class FaceReIDTracker:
         return tracked_persons
 
 
+class TqdmProgressCapturer(io.TextIOBase):
+    """
+    A file-like object that captures stdout, parses tqdm progress,
+    and sends throttled updates to a queue.
+    """
+    def __init__(self, status_queue, file_info):
+        self.status_queue = status_queue
+        self.file_info = file_info
+        self.original_stdout = sys.stdout
+        self.last_percent = -1
+        # Specific regex to capture the percentage from tqdm's output
+        self.percent_regex = re.compile(r"(\d+)%\|")
+
+    def write(self, s):
+        # Write the output to the actual console first so the user can see it
+        self.original_stdout.write(s)
+
+        # Try to find a percentage in the string
+        match = self.percent_regex.search(s)
+        if match:
+            percent_str = match.group(1)
+            percent = int(percent_str)
+
+            # Throttle updates: only send if the percentage has changed
+            if percent > self.last_percent:
+                self.last_percent = percent
+                # TODO: both print statement and status queue entry never get written -> percentage does not get emitted
+                self.original_stdout.write(f"INFO: Percentage has been updated to: {percent}%.\n")
+                self.status_queue.put({
+                    'type': 'status',
+                    'payload': {
+                        'status': 'file_downloading',
+                        'message': f"Downloading {self.file_info.path}",
+                        'percent_file': percent,
+                        'filename': self.file_info.path
+                    }
+                })
+        # The write method should return the number of characters written
+        return len(s)
+
+    # --- Added Methods for Robustness ---
+    def flush(self):
+        """Pass the flush command to the original stdout."""
+        self.original_stdout.flush()
+
+    def isatty(self):
+        """Pretend to be an interactive terminal if the original stdout is."""
+        return self.original_stdout.isatty()
+
+    def fileno(self):
+        """Return the file descriptor number of the original stdout."""
+        return self.original_stdout.fileno()
+
+    @property
+    def encoding(self):
+        """Return the encoding of the original stdout."""
+        return self.original_stdout.encoding
+
+
+# Context manager to safely redirect stdout
+class ProgressRedirector:
+    def __init__(self, status_queue, file_info):
+        self.status_queue = status_queue
+        self.file_info = file_info
+        self.capturer = None
+
+    def __enter__(self):
+        # Create the capturer instance and redirect stdout
+        self.capturer = TqdmProgressCapturer(self.status_queue, self.file_info)
+        sys.stdout = self.capturer
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # IMPORTANT: Always restore the original stdout
+        if self.capturer:
+            sys.stdout = self.capturer.original_stdout
+
+
 # ---------------- REMOTE LLM (API-BASED) SETUP ----------------
 class RemoteLLM:
     """
     Wrapper for a remote LLM API endpoint.
     """
 
-    def __init__(self, api_key, api_url="https://api.openai.com/v1/chat/completions", model="gpt-3.5-turbo"):
+    def __init__(self, api_key, api_url=DEFAULT_LLM_API_URL,
+                 model="gpt-3.5-turbo"):  # TODO: make model settable
         if not api_key:
             raise ValueError("API key is required for RemoteLLM.")
         self.api_key = api_key
@@ -182,52 +320,99 @@ class LocalLLM:
 
     def __init__(
             self,
-            model_name="tiiuae/falcon-7b-instruct",
+            model_name=DEFAULT_LOCAL_LLM_MODEL_NAME,
+            status_queue=None,
             device=None,
             quantize_4bit=True,
-            trust_remote_code=False
+            trust_remote_code=False,  # TODO: might need to be enabled for certain models, make user interface button?
     ):
+
+        APP_STATE["local_model_ready"] = False # default value of shared boolean
+        print("INFO: Set local_model_ready state to False.")
+
         self.model_name = model_name
+        self.status_queue = status_queue
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"INFO: Initializing LocalLLM on device: {self.device}")
+        print(f"INFO: Initializing LocalLLM '{model_name}' on device: {self.device}")
 
-        # Tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_name,
-            use_fast=True,
-            trust_remote_code=trust_remote_code
-        )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        try:
 
-        quantization_config = None
-        model_kwargs = {
-            "device_map": "auto",
-            "low_cpu_mem_usage": True,
-            "trust_remote_code": trust_remote_code,
-        }
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                use_fast=True,
+                trust_remote_code=trust_remote_code
+            )
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        if self.device == "cuda":
-            if quantize_4bit:
-                print("INFO: Applying 4-bit quantization for CUDA device.")
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_use_double_quant=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.float16,
-                )
-                model_kwargs["quantization_config"] = quantization_config
+            model_kwargs = {
+                "device_map": "auto",
+                "low_cpu_mem_usage": True,
+                "trust_remote_code": trust_remote_code,
+            }
+
+            if self.device == "cuda":
+                if quantize_4bit:
+                    print("INFO: Applying 4-bit quantization for CUDA device.")
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_use_double_quant=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=torch.float16,
+                    )
+                    model_kwargs["quantization_config"] = quantization_config
+                else:
+                    model_kwargs["torch_dtype"] = torch.float16
             else:
-                model_kwargs["torch_dtype"] = torch.float16  # float16 for better performance on GPU if not quantizing
-        else:
-            print(
-                "WARNING: CPU device detected. Quantization is disabled. Model will be loaded in full precision (float32).")
+                print("WARNING: CPU device detected. Quantization is disabled.")
 
-        print(f"INFO: Loading model '{model_name}'... This may take a significant amount of time and memory.")
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name
-        )
-        print("INFO: Model loaded successfully.")
+            print(f"INFO: Calling from_pretrained for '{model_name}'... This is the slow step.")
+
+            if self.is_model_cached():
+                print(f"INFO: Loading '{model_name}' from cache.")
+                self.status_queue.put({
+                    'type': 'status',
+                    'payload': {'status': 'model_loading_from_cache', 'message': f'Loading {self.model_name} from cache.'}
+                })
+            else:
+                print(f"INFO: Downloading '{model_name}'. This might take a while.")
+                self.status_queue.put({
+                    'type': 'status',
+                    'payload': {'status': 'model_downloading', 'message': f'Downloading {self.model_name}. This might '
+                                                                          f'take a while.'}
+                })
+                self.download_with_progress()
+
+            # TODO: model_kwargs is passed to the model and for some reason messes with openai/gpt-oss-20b and openai/gpt-oss-120b
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                **model_kwargs
+            )
+
+            print("INFO: Model loading complete.")
+
+            # Backend communication status
+            self.status_queue.put({
+                'type': 'local_llm_model_ready',
+                'payload': True  # Signal that the model is ready
+            })
+            # Use the queue again for the final status update
+            self.status_queue.put({
+                'type': 'status',
+                'payload': {'status': 'model_ready', 'message': f'{self.model_name} ready.'}
+            })
+
+        except Exception as e:
+            print(f"ERROR: Failed to load local model '{model_name}'. Error: {e}")
+            # Backend communication status
+            self.status_queue.put({
+                'type': 'local_llm_model_ready',
+                'payload': False  # Signal error for backend
+            })
+            self.status_queue.put({
+                'type': 'status',
+                'payload': {'status': 'model_error', 'message': f'Error loading {self.model_name}.'}
+            })
 
         # Sensible short defaults for fast, concise summaries
         self.generation_defaults = dict(
@@ -240,22 +425,114 @@ class LocalLLM:
             use_cache=True,
         )
 
-    def generate_narrative(self, prompt, **gen_overrides):
+    def generate_narrative(self, prompt, stopping_criteria=None, **gen_overrides):
         """
-
         :param prompt:
+        :param stopping_criteria: A list of StoppingCriteria to halt generation.
         :param gen_overrides:
         :return:
         """
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
         gen_cfg = {**self.generation_defaults, **gen_overrides}
+
+        # Add stopping criteria to the generation config if provided
+        if stopping_criteria:
+            gen_cfg["stopping_criteria"] = stopping_criteria
+
         with torch.inference_mode():
             output_ids = self.model.generate(**inputs, **gen_cfg)
 
         gen_tokens = output_ids[0, inputs["input_ids"].shape[-1]:]
         text = self.tokenizer.decode(gen_tokens, skip_special_tokens=True)
         print("INFO: Narrative generated successfully.")
+        # print("DEBUG: Local LLM's answer: " + text)
         return text.strip()
+
+    def is_model_cached(self):
+        try:
+            # Try resolving config.json locally
+            hf_hub_download(
+                repo_id=self.model_name,
+                filename="config.json",
+                local_files_only=True
+            )
+            return True
+        except Exception:
+            return False
+
+    def custom_progress_callback(self, percent):
+        print(f"Downloaded {percent}%")
+        self.status_queue.put({
+            'type': 'status',
+            'payload': {
+                'status': 'model_downloading',
+                'message': f'{self.model_name}: {percent}% downloaded.'
+            }
+        })
+
+    def download_with_progress(self):
+        """
+        Manually downloads all files, capturing console output to report progress
+        for older versions of the huggingface_hub library.
+        """
+        try:
+            api = HfApi()
+            repo_tree = api.list_repo_tree(repo_id=self.model_name)
+            repo_files = [item for item in repo_tree if isinstance(item, RepoFile)]
+
+            # Can't easily do overall progress with this method, so we focus on per-file
+            print(f"INFO: Starting download of {len(repo_files)} files.")
+            self.status_queue.put({
+            'type': 'status',
+            'payload': {
+                'status': 'model_downloading',
+                'message': f'Starting download of {len(repo_files)} files.'
+            }
+            })
+
+            # Loop through each file and download it inside our progress redirector
+            for file_info in repo_files:
+                print(f"INFO: Downloading file: {file_info.path} ({file_info.size / 1e6:.2f} MB)")
+                self.status_queue.put({
+                    'type': 'status',
+                    'payload': {
+                        'status': 'model_downloading',
+                        'message': f'Downloading file: {file_info.path} ({file_info.size / 1e6:.2f} MB)'
+                    }
+                })
+
+                # Use the context manager to capture progress for this specific download
+                with ProgressRedirector(self.status_queue, file_info):
+                    hf_hub_download(
+                        repo_id=self.model_name,
+                        filename=file_info.path,
+                        resume_download=True,
+                        # No tqdm_class argument here
+                    )
+                # After the 'with' block, stdout is automatically restored to normal
+                print(f"\nINFO: Finished downloading {file_info.path}")
+                self.status_queue.put({
+                    'type': 'status',
+                    'payload': {
+                        'status': 'model_downloading',
+                        'message': f'Finished downloading {file_info.path}.'
+                    }
+                })
+
+        except Exception as e:
+            # Ensure stdout is restored even if an error occurs somewhere else
+            # This is a fallback, the context manager should handle it
+            if isinstance(sys.stdout, TqdmProgressCapturer):
+                sys.stdout = sys.stdout.original_stdout
+
+            print(f"ERROR during model download: {e}")
+            self.status_queue.put({
+                'type': 'status',
+                'payload': {
+                    'status': 'error',
+                    'message': f'Download failed: {str(e)}'
+                }
+            })
 
 
 def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels, llm=None, engagement_sequence=None):
@@ -268,6 +545,7 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
     :param emotion_labels: A mapping of indices to emotion label strings.
     :param llm: Optional LocalLLM or RemoteLLM instance used to generate the summary.
     :param engagement_sequence: Optional list of engagement scores (floats between 0 and 1).
+
     :return: A human-readable summary string describing emotional and attentional trends.
     """
     if not emotions_sequence or len(emotions_sequence) < 5:
@@ -295,7 +573,7 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
             f"You must not quote the raw sequence itself, but summarize the overall trend.\n"
             f"Summary:"
         )
-        print("DEBUG: Prompt for LLM:\n\t" + prompt)
+        # print("DEBUG: Prompt for LLM:\n\t" + prompt)
         return llm.generate_narrative(prompt, max_new_tokens=100, temperature=0.2, top_p=0.9)
 
     # ---------- Heuristic fallback ----------
