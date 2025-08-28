@@ -567,7 +567,7 @@ path.line-ts {
 
 /* Link to huggingface models */
 .tile-link {
-    font-size: 0.8rem;
+    font-size: 0.9rem;
     font-weight: 500;
     background-color: var(--accent-color);
     color: var(--text-color);
