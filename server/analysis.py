@@ -460,6 +460,7 @@ class LocalLLM:
         except Exception:
             return False
 
+    # TODO: not used
     def custom_progress_callback(self, percent):
         print(f"Downloaded {percent}%")
         self.status_queue.put({
@@ -545,7 +546,6 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
     :param emotion_labels: A mapping of indices to emotion label strings.
     :param llm: Optional LocalLLM or RemoteLLM instance used to generate the summary.
     :param engagement_sequence: Optional list of engagement scores (floats between 0 and 1).
-
     :return: A human-readable summary string describing emotional and attentional trends.
     """
     if not emotions_sequence or len(emotions_sequence) < 5:
@@ -708,9 +708,6 @@ def generate_summary_payload(tracking_data, tracker, emotion_labels, llm=None):
 
         if llm is not None:
             print(f"INFO: LLM's processing time: {total_time:.2f} seconds.")
-
-        engagements = [e for e in data.get('engagement', []) if e is not None]
-        avg_engagement = round(sum(engagements) / len(engagements), 2) if engagements else None
 
         summary_payload[p_id] = {
             'id': p_id,
