@@ -9,11 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const MAX_TIMESERIES_POINTS = 100;
     const poseEstimator = new HeadPoseEstimator();
 
-    let useLLM;
-    let model;
-    let defaultApiUrl = '';
-    let defaultLocalModel = '';
-
     let state = {
         isTracking: false,
         videoSource: null,
@@ -24,6 +19,106 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedParticipantId: 'average',
         isMergeMode: false, // Controls the modal visibility
         mergeSelection: [], // Stores selected IDs for merging. First element is the target.
+    };
+
+
+    /**
+     * A central state manager for all LLM-related variables.
+     * Provides methods to get, set, and subscribe to state changes.
+     */
+    const llmState = {
+
+        _state: {
+            isReady: false,
+            mode: 0, // 0: Heuristic, 1: Local LLM, 2: API LLM
+            model: '',
+            defaultApiUrl: '',
+            defaultLocalModel: ''
+        },
+
+        // Listeners stored per-key for efficiency.
+        _listeners: {
+            isReady: [],
+            mode: [],
+            model: [],
+            defaultApiUrl: [],
+            defaultLocalModel: []
+        },
+
+        /**
+         * Gets a value from the state.
+         * @param {string} [key] - The key of the state to retrieve. If omitted, returns a copy of the entire state.
+         * @returns {*} The value of the key or a copy of the entire state object.
+         */
+        get(key) {
+            if (key) {
+                return this._state[key];
+            }
+            // Return a copy to prevent accidental direct modification
+            return {...this._state};
+        },
+
+        /**
+         * Sets a value in the state and notifies listeners if it changed.
+         * @param {string} key - The key of the state to set (e.g., 'mode').
+         * @param {*} value - The new value.
+         */
+        set(key, value) {
+            if (this._state.hasOwnProperty(key) && this._state[key] !== value) {
+                console.log(`LLM State Change: '${key}' from '${this._state[key]}' to '${value}'`);
+                this._state[key] = value;
+                // Notify all listeners subscribed to this specific key
+                this._listeners[key].forEach(callback => callback(value));
+            }
+        },
+
+        /**
+         * A convenience method to set multiple state values from an object.
+         * @param {object} dataObject - An object with key-value pairs to update.
+         */
+        batchSet(dataObject) {
+            for (const key in dataObject) {
+                if (this._state.hasOwnProperty(key)) {
+                    this.set(key, dataObject[key]);
+                }
+            }
+        },
+
+        /**
+         * Subscribes to changes for a specific state property.
+         * @param {string} key - The key of the state to listen to.
+         * @param {Function} callback - The function to execute when the state changes. It receives the new value.
+         * @returns {Function} An `unsubscribe` function to stop listening.
+         */
+        onChange(key, callback) {
+            if (this._listeners.hasOwnProperty(key)) {
+                this._listeners[key].push(callback);
+                // Return an unsubscribe function for easy cleanup
+                return () => {
+                    this._listeners[key] = this._listeners[key].filter(cb => cb !== callback);
+                };
+            }
+            // Return a no-op function if the key is invalid
+            return () => {
+            };
+        },
+
+        /**
+         * Subscribes a function to be called ONCE when the status changes from false to true.
+         * @param {Function} callback The function to execute when ready.
+         */
+        onReady(callback) {
+            if (this.get('isReady')) {
+                callback();
+            } else {
+                const unsubscribe = this.onChange('isReady', (newValue) => {
+                    if (newValue === true) {
+                        callback();
+                        unsubscribe(); // Unsubscribe so it only runs once!
+                    }
+                });
+            }
+        }
     };
 
     // ---------------------------------------------------
@@ -185,17 +280,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         dom.settings.setLocalModelBtn.addEventListener('click', () => {
-            model = dom.settings.localModelInput.value.trim();
-            socket.emit('set_local_model', {model_name: model});
+            llmState.set('model', dom.settings.localModelInput.value.trim());
+            socket.emit('set_local_model', {model_name: llmState.get('model')});
             dom.settings.localModelInput.value = ''; // Clear input field after setting
         });
 
         // Show history on input focus
         dom.settings.apiUrlInput.addEventListener('focus', () => {
-            showHistory(dom.settings.apiUrlInput, dom.apiUrlHistory, 'apiUrlHistory', defaultApiUrl);
+            showHistory(dom.settings.apiUrlInput, dom.apiUrlHistory, 'apiUrlHistory', llmState.get('defaultApiUrl'));
         });
         dom.settings.localModelInput.addEventListener('focus', () => {
-            showHistory(dom.settings.localModelInput, dom.localModelHistory, 'localModelHistory', defaultLocalModel);
+            showHistory(dom.settings.localModelInput, dom.localModelHistory, 'localModelHistory', llmState.get('defaultLocalModel'));
         });
 
         // Hide history when clicking outside
@@ -217,12 +312,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 dom.llmComputation.statusText.textContent = 'Cancellation requested...';
                 updateLLMComputationStatusTile(true, false, true, true);
             } else if (buttonText === 'Summarize Again') {
-                console.log(`'Summarize Again' clicked. Restarting with mode: ${useLLM}`);
-                socket.emit('restart_and_summarize', { // TODO: only if useLLM === 1 or handle in backend
-                    model_name: model,
-                    use_llm: useLLM
+                console.log(`'Summarize Again' clicked. Restarting with mode: ${llmState.get('mode')}`);
+                socket.emit('restart_and_summarize', { // TODO: should be handled in backend, check for recursion error
+                    model_name: llmState.get('model'),
+                    use_llm: llmState.get('mode')
                 });
-                updateLLMComputationStatusTile(true, false, false, true);
+                updateLLMComputationStatusTile(true, false, false, true, true);
             }
         });
 
@@ -240,9 +335,14 @@ document.addEventListener('DOMContentLoaded', () => {
             // Populate the input fields with current values from the server
             if (data.api_url) dom.settings.apiUrlInput.value = data.api_url;
             if (data.local_model_name) dom.settings.localModelInput.value = data.local_model_name;
-            // Store default values from the backend
-            defaultApiUrl = data.default_api_url;
-            defaultLocalModel = data.default_local_model_name;
+            // Store values from the backend
+            llmState.batchSet({
+                isReady: data.local_model_ready,
+                model: data.local_model_name,
+                defaultApiUrl: data.default_api_url,
+                defaultLocalModel: data.default_local_model_name
+            });
+
             // Update placeholders to show the *currently active* setting
             dom.settings.apiUrlInput.placeholder = `Current: ${data.api_url}`;
             dom.settings.localModelInput.placeholder = `Current: ${data.local_model_name}`;
@@ -253,13 +353,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (data.type === 'api_url') {
                 // Add the confirmed URL to history if it's not the default.
-                if (data.value && data.value !== defaultApiUrl) {
+                if (data.value && data.value !== llmState.get('defaultApiUrl')) {
                     addToHistory('apiUrlHistory', data.value);
                     console.log(`Added valid API URL to history: ${data.value}`);
                 }
             } else if (data.type === 'local_model') {
                 // Add the confirmed model to history if it's not the default.
-                if (data.value && data.value !== defaultLocalModel) {
+                if (data.value && data.value !== llmState.get('defaultLocalModel')) {
                     addToHistory('localModelHistory', data.value);
                     console.log(`Added valid LLM Model to history: ${data.value}`);
                 }
@@ -286,7 +386,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     dom.localLlmStatus.group.className = 'status-indicator status-warning'
                     dom.localLlmStatus.modelStatusIndicator.className = 'status-indicator status-warning';
                     dom.llmComputation.statusIndicator.className = 'group-status-indicator status-warning'; // Yellow: In progress
-                    updateLLMComputationStatusTile(true, true, false, false);
+                    updateLLMComputationStatusTile(true, true, false, false, true);
                     break;
                 case 'model_ready':
                     dom.localLlmStatus.modelStatusText.textContent = 'Ready';
@@ -296,7 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'calling_api':
                 case 'generating':
                     dom.llmComputation.statusIndicator.className = 'group-status-indicator status-warning';
-                    updateLLMComputationStatusTile(true, true);
+                    updateLLMComputationStatusTile(true, true, false, true);
                     break;
                 case 'success':
                     dom.llmComputation.statusIndicator.className = 'group-status-indicator status-present'; // Green: Success
@@ -462,17 +562,20 @@ document.addEventListener('DOMContentLoaded', () => {
             dom.summaryContainer.classList.add('hidden');
             dom.summaryReport.innerHTML = '';
 
-            updateLLMComputationStatusTile(true, false, false, false);
+            updateLLMComputationStatusTile(true, false, false, false, true); // Tile visible without button
+
             // Hide status tile after two seconds
-            /*
-            TODO: if model is not yet loaded, but tracking session is already started:
-             wait for loading and then disappear after two seconds
-             */
-            setTimeout(() => {
-                dom.llmComputation.tile.style.display = 'none';
-            }, 2000);
+            const hideTileAfterDelay = () => {
+                setTimeout(() => {
+                    dom.llmComputation.tile.style.display = 'none';
+                }, 3000);
+            };
+            llmState.onReady(hideTileAfterDelay);
+
             socket.emit('start_tracking');
             state.sendIntervalId = setInterval(sendFrame, FRAME_SEND_INTERVAL_MS);
+
+
         } else {
             dom.llmComputation.statusText.textContent = 'Initializing...';
             dom.llmComputation.statusIndicator.className = 'group-status-indicator status-warning'; // Yellow for in-progress
@@ -481,7 +584,7 @@ document.addEventListener('DOMContentLoaded', () => {
             dom.llmComputation.cancelBtn.disabled = false;
             clearInterval(state.sendIntervalId);
             state.sendIntervalId = null;
-            socket.emit("get_summary", {use_llm: useLLM});
+            socket.emit("get_summary", {use_llm: llmState.get('mode')});
         }
     }
 
@@ -922,7 +1025,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     setupSummaryMethodSlider(newMode => {
         console.log("Summary mode changed to:", newMode);
-        useLLM = newMode;
+        llmState.set('mode', newMode);
     });
 
 
@@ -1303,12 +1406,13 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Updates the local LLM computation status tile
      * @param tileVisible true === tile is visible and by default, false otherwise
-     * @param isLoadingModel true === button displays "Cancel Summary", false === button displays "Summarize again" and by default
+     * @param buttonShowsCancelSummary true === button displays "Cancel Summary", false === button displays "Summarize again" and by default
      * @param buttonDisabled true === button is disabled, false otherwise and by default
      * @param buttonVisible true === button is visible and by default, false otherwise
+     * @param loadingModel true === tile displays "LLM Loading Status", "LLM Computation Status" otherwise and by default
      */
-    function updateLLMComputationStatusTile(tileVisible = true, isLoadingModel = false,
-                                            buttonDisabled = false, buttonVisible = true) {
+    function updateLLMComputationStatusTile(tileVisible = true, buttonShowsCancelSummary = false,
+                                            buttonDisabled = false, buttonVisible = true, loadingModel = false) {
 
         if (!dom.llmComputation.cancelBtn) return; // safety check
 
@@ -1327,8 +1431,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         dom.llmComputation.tile.style.display = 'block';
         dom.llmComputation.cancelBtn.disabled = buttonDisabled;
-        dom.llmComputation.headerText.textContent = isLoadingModel ? 'LLM Loading Status' : 'LLM Computation Status';
-        dom.llmComputation.cancelBtn.textContent = isLoadingModel ? 'Cancel Summary' : 'Summarize Again';
+        dom.llmComputation.headerText.textContent = loadingModel ? 'LLM Loading Status' : 'LLM Computation Status';
+        dom.llmComputation.cancelBtn.textContent = buttonShowsCancelSummary ? 'Cancel Summary' : 'Summarize Again';
     }
 
 
