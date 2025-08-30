@@ -228,7 +228,7 @@ def create_app():
     @socketio.on('set_api_key')
     def on_set_api_key(data):
         """Client is setting a new API key."""
-        global LLM_API_KEY, remote_llm
+        global LLM_API_KEY, remote_llm # TODO: Global variable 'LLM_API_KEY' is undefined at the module level
         new_key = data.get('key')
 
         if new_key and new_key.strip():
@@ -284,7 +284,7 @@ def create_app():
 
             CURRENT_LOCAL_LLM_MODEL_NAME = new_model_name
             print(f"INFO: Starting new LLM worker process for model: {new_model_name}")
-            emit('summary_status',
+            socketio.emit('summary_status',
                  {'status': 'initializing', 'message': f'Starting new LLM worker process for model: {new_model_name}.'})
 
             # Create and start the new worker process
@@ -321,7 +321,7 @@ def create_app():
                     print(f"INFO: Backend communication received model readiness update from worker. Model ready: {is_ready}")
                     APP_STATE["local_model_ready"] = is_ready
                     emit_status_update()
-                    # Model is ready after pending summary tasks TODO: buggy behavior
+                    # Model is ready after pending summary tasks
                     if is_ready:
                         with pending_summary_lock:
                             if pending_summary_task is not None:
@@ -474,26 +474,30 @@ def create_app():
     @socketio.on('restart_and_summarize')
     def on_restart_and_summarize(data):
         """
-        Handles a request to generate a summary, reloading the model only if necessary.
+        Handles a request to generate a summary, reloading the local model only if necessary.
         """
         global pending_summary_task
+        use_llm_mode = int(data.get("use_llm", 0))
 
+        # Proceed to the summary directly if heuristic or remote API summary is selected
+        if use_llm_mode != 1:
+            print("INFO: Received summarize request for non-local LLM. Forwarding.")
+            on_get_summary(data)
+            return
+
+        # Local LLM Logic
         with llm_process_lock:
-            # Check if a process is already running and the model has confirmed it's ready.
+            # Check if a process is already running and the model has confirmed it's ready
             if llm_process and llm_process.is_alive() and APP_STATE.get("local_model_ready"):
                 print("INFO: LLM process is already ready. Reusing for new summary.")
-                # TODO: Results in weird behavior: killing old task and starting a new one eventually
                 on_get_summary(data)
+                return
 
         # Reload logic
-
         print("INFO: LLM process not ready. Starting reload and queuing summary task.")
-
         with pending_summary_lock:
-            # Store the summary request as a pending task.
-            pending_summary_task = {"use_llm": data.get("use_llm", 1)}
+            pending_summary_task = {"use_llm": use_llm_mode}
 
-        # Kick off the model loading process. The queue_listener will trigger the summary when it's ready.
         on_set_local_model({'model_name': data.get('model_name', DEFAULT_LOCAL_LLM_MODEL_NAME)})
 
 
