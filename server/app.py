@@ -295,7 +295,7 @@ def create_app():
             llm_process.start()
 
         socketio.start_background_task(target=queue_listener, queue=status_queue)
-        socketio.start_background_task(target=result_monitor())
+        socketio.start_background_task(target=result_monitor)
         emit_status_update()
 
     # Listener that runs in the main process using IPC
@@ -327,12 +327,49 @@ def create_app():
                             if pending_summary_task is not None:
                                 print("INFO: Model is ready after restart, executing pending summary task.")
                                 # Call the summary function with the stored data
-                                on_get_summary(pending_summary_task)
+                                _execute_local_summary()
                                 # Clear the task so it doesn't run again
                                 pending_summary_task = None
+                elif message_type == 'file_downloading' or message_type == 'model_downloading':
+                    print("Message type was not set properly before")
             except Exception as e:
                 print(f"ERROR in queue_listener: {e}")
 
+    def _execute_local_summary():
+        """
+        Contains the core logic for generating a summary with a local LLM.
+        """
+        with llm_process_lock:
+            if not llm_process or not llm_process.is_alive():
+                socketio.emit('summary_status',
+                              {'status': 'error', 'message': 'Local LLM process is not running. Please set a model.'})
+                return
+
+        tasks_sent = 0
+        for person_id, p_data in tracking_data.items():
+            if len(p_data.get('emotions', [])) >= 5:
+                person_metadata = next((meta for meta in tracker.known_face_metadata if meta['id'] == person_id), None)
+                if not person_metadata:
+                    print(f"WARNING: Could not find name for person_id {person_id}. Skipping summary.")
+                    continue
+
+                person_name = person_metadata['name']
+                task = {
+                    "person_name": person_name,
+                    "emotions_sequence": p_data['emotions'],
+                    "emotion_labels": emotion_labels,
+                    "engagement_sequence": p_data.get('engagement'),
+                    "person_id": person_id
+                }
+                task_queue.put(task)
+                tasks_sent += 1
+
+        if tasks_sent > 0:
+            print(f"INFO: Sent {tasks_sent} summary task(s) to the LLM worker process.")
+            socketio.emit('summary_status',
+                          {'status': 'generating', 'message': f'Sent {tasks_sent} task(s) to LLM worker.'})
+        else:
+            socketio.emit('summary_status', {'status': 'error', 'message': 'No one had enough data for a summary.'})
 
     @socketio.on('client_ready')
     def on_client_ready():
@@ -385,40 +422,7 @@ def create_app():
 
         # --- Mode 1: Local LLM via Multiprocessing ---
         if use_llm_mode == 1:
-            with llm_process_lock:
-                if not llm_process or not llm_process.is_alive():
-                    emit('summary_status',
-                         {'status': 'error', 'message': 'Local LLM process is not running. Please set a model.'})
-                    return
-
-            tasks_sent = 0
-            for person_id, p_data in tracking_data.items():
-                if len(p_data.get('emotions', [])) >= 5:
-                    # The tracker holds the ID-to-name mapping.
-                    person_metadata = next((meta for meta in tracker.known_face_metadata if meta['id'] == person_id),
-                                           None)
-                    if not person_metadata:
-                        print(f"WARNING: Could not find name for person_id {person_id}. Skipping summary.")
-                        continue  # Skip this person if their metadata isn't found
-
-                    person_name = person_metadata['name']
-
-                    task = {
-                        "person_name": person_name,
-                        "emotions_sequence": p_data['emotions'],
-                        "emotion_labels": emotion_labels,
-                        "engagement_sequence": p_data.get('engagement'),
-                        "person_id": person_id
-                    }
-                    task_queue.put(task)
-                    tasks_sent += 1 # TODO: maybe send this to the llm_process_worker instead of the while true loop?
-
-            if tasks_sent > 0:
-                print(f"INFO: Sent {tasks_sent} summary task(s) to the LLM worker process.")
-                emit('summary_status', {'status': 'generating', 'message': f'Sent {tasks_sent} task(s) to LLM worker.'})
-            else:
-                emit('summary_status', {'status': 'error', 'message': 'No one had enough data for a summary.'})
-
+            _execute_local_summary()
 
         # --- Modes 0 & 2: Heuristic and Remote API via Threading ---
         else:
@@ -444,8 +448,6 @@ def create_app():
                     )
 
                     socketio.emit('tracking_summary', json.dumps(summary_payload))
-
-                    # print("DEBUG: Emitted json.dumps for Heuristic/Remote LLM: " + str(summary_payload))
 
                     success_message = "Heuristic summary generated successfully."
                     if use_llm_mode == 2:
