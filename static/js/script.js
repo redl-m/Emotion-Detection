@@ -1,13 +1,101 @@
 document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------
-    // A. Constants & State
+    // A. DOM Element Selectors
     // ---------------------------------------------------
+    const dom = {
+        // Video and Canvas
+        videoWrapper: document.getElementById('video-wrapper'),
+        overlayCanvas: document.getElementById('overlayCanvas'),
+        overlayCtx: document.getElementById('overlayCanvas').getContext('2d'),
+
+        // Placeholders and Loaders
+        placeholder: document.getElementById('placeholder'),
+        placeholderContent: document.getElementById('placeholder-content'),
+        loader: document.getElementById('loader'),
+
+        // Main Controls
+        uploadInput: document.getElementById('videoUpload'),
+        liveBtn: document.getElementById('liveBtn'),
+        trackBtn: document.getElementById('trackBtn'),
+        trackBtnText: document.getElementById('trackBtnText'),
+        controlsBottom: document.querySelector('.controls-bottom'),
+
+        // Merging
+        mergeBtn: document.getElementById('mergeBtn'),
+        mergeModal: document.getElementById('mergeModal'),
+        closeMergeModalBtn: document.getElementById('closeMergeModalBtn'),
+        cancelMergeBtn: document.getElementById('cancelMergeBtn'),
+        confirmMergeBtn: document.getElementById('confirmMergeBtn'),
+        mergeParticipantList: document.getElementById('mergeParticipantList'),
+        mergeNamePrompt: document.getElementById('mergeNamePrompt'),
+        newPersonNameInput: document.getElementById('newPersonName'),
+
+        // Analysis and Reporting
+        analysisSection: document.getElementById('analysis-section'),
+        participantSelectors: {
+            bar: document.getElementById('participant-selector-bar'),
+            ts: document.getElementById('participant-selector-ts'),
+            attn: document.getElementById('participant-selector-attn')
+        },
+        summaryContainer: document.getElementById('summary-container'),
+        summaryReport: document.getElementById('summary-report'),
+
+        // History Lists
+        apiUrlHistory: document.getElementById('apiUrlHistory'),
+        localModelHistory: document.getElementById('localModelHistory'),
+
+        // LLM Computation Status
+        llmComputation: {
+            tile: document.getElementById('llmComputationTile'),
+            statusText: document.getElementById('llmStatusText'),
+            statusIndicator: document.getElementById('llmStatusIndicator'),
+            cancelBtn: document.getElementById('cancelSummaryBtn'),
+            headerText: document.getElementById('llmHeaderText')
+        },
+
+        // API Connection Status
+        apiStatus: {
+            group: document.getElementById('apiGroupStatus'),
+            keyText: document.getElementById('apiKeyStatusText'),
+            keyIndicator: document.getElementById('apiKeyStatusIndicator'),
+            urlText: document.getElementById('apiUrlStatusText'),
+            urlIndicator: document.getElementById('apiUrlStatusIndicator')
+        },
+
+        // Local LLM Status
+        localLlmStatus: {
+            group: document.getElementById('localLlmGroupStatus'),
+            modelNameText: document.getElementById('localLlmStatusModelNameText'),
+            modelNameIndicator: document.getElementById('localLlmModelNameStatusIndicator'),
+            modelStatusText: document.getElementById('localLlmModelStatusText'),
+            modelStatusIndicator: document.getElementById('localLlmModelStatusIndicator'),
+            cudaText: document.getElementById('cudaStatusText'),
+            cudaIndicator: document.getElementById('cudaStatusIndicator')
+        },
+
+        // Settings Inputs & Buttons
+        settings: {
+            apiKeyInput: document.getElementById('apiKeyInput'),
+            setApiKeyBtn: document.getElementById('setApiKeyBtn'),
+            apiUrlInput: document.getElementById('apiUrlInput'),
+            setApiUrlBtn: document.getElementById('setApiUrlBtn'),
+            localModelInput: document.getElementById('localModelInput'),
+            setLocalModelBtn: document.getElementById('setLocalModelBtn')
+        }
+    };
+
+    // ---------------------------------------------------
+    // B. Constants, State & Objects
+    // ---------------------------------------------------
+
     const EMOTIONS = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral'];
     const socket = io();
     const D3_COLORS = d3.scaleOrdinal(d3.schemeCategory10);
     const FRAME_SEND_INTERVAL_MS = 200; // ~5 FPS
     const MAX_TIMESERIES_POINTS = 100;
     const poseEstimator = new HeadPoseEstimator();
+    let chartManager;
+    let attentionChart;
 
     let state = {
         isTracking: false,
@@ -19,6 +107,8 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedParticipantId: 'average',
         isMergeMode: false, // Controls the modal visibility
         mergeSelection: [], // Stores selected IDs for merging. First element is the target.
+        hasSummaryBeenSuccessful: false,
+        lastState: ''
     };
 
 
@@ -121,98 +211,116 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // ---------------------------------------------------
-    // B. DOM Element Selectors
-    // ---------------------------------------------------
-    const dom = {
-        // Video and Canvas
-        videoWrapper: document.getElementById('video-wrapper'),
-        overlayCanvas: document.getElementById('overlayCanvas'),
-        overlayCtx: document.getElementById('overlayCanvas').getContext('2d'),
 
-        // Placeholders and Loaders
-        placeholder: document.getElementById('placeholder'),
-        placeholderContent: document.getElementById('placeholder-content'),
-        loader: document.getElementById('loader'),
-
-        // Main Controls
-        uploadInput: document.getElementById('videoUpload'),
-        liveBtn: document.getElementById('liveBtn'),
-        trackBtn: document.getElementById('trackBtn'),
-        trackBtnText: document.getElementById('trackBtnText'),
-        controlsBottom: document.querySelector('.controls-bottom'),
-
-        // Merging
-        mergeBtn: document.getElementById('mergeBtn'),
-        mergeModal: document.getElementById('mergeModal'),
-        closeMergeModalBtn: document.getElementById('closeMergeModalBtn'),
-        cancelMergeBtn: document.getElementById('cancelMergeBtn'),
-        confirmMergeBtn: document.getElementById('confirmMergeBtn'),
-        mergeParticipantList: document.getElementById('mergeParticipantList'),
-        mergeNamePrompt: document.getElementById('mergeNamePrompt'),
-        newPersonNameInput: document.getElementById('newPersonName'),
-
-        // Analysis and Reporting
-        analysisSection: document.getElementById('analysis-section'),
-        participantSelectors: {
-            bar: document.getElementById('participant-selector-bar'),
-            ts: document.getElementById('participant-selector-ts'),
-            attn: document.getElementById('participant-selector-attn')
+    const statusConfigs = {
+        'initializing': {
+            indicator: 'status-warning',
+            tileConfig: {
+                headerText: 'LLM Loading Status',
+                buttonText: 'Cancel Loading',
+                buttonVisible: true,
+            },
+            domElements: {
+                group: dom.localLlmStatus.group,
+                modelStatusIndicator: dom.localLlmStatus.modelStatusIndicator,
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
         },
-        summaryContainer: document.getElementById('summary-container'),
-        summaryReport: document.getElementById('summary-report'),
-
-        // History Lists
-        apiUrlHistory: document.getElementById('apiUrlHistory'),
-        localModelHistory: document.getElementById('localModelHistory'),
-
-        // LLM Computation Status (Refactored Tile)
-        llmComputation: {
-            tile: document.getElementById('llmComputationTile'),
-            statusText: document.getElementById('llmStatusText'),
-            statusIndicator: document.getElementById('llmStatusIndicator'),
-            cancelBtn: document.getElementById('cancelSummaryBtn'),
-            headerText: document.getElementById('llmHeaderText')
+        'model_downloading': {
+            indicator: 'status-warning',
+            tileConfig: {
+                headerText: 'LLM Loading Status',
+                buttonText: 'Cancel Loading',
+                buttonVisible: true,
+            },
+            domElements: {
+                group: dom.localLlmStatus.group,
+                modelStatusIndicator: dom.localLlmStatus.modelStatusIndicator,
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
         },
-
-        // API Connection Status
-        apiStatus: {
-            group: document.getElementById('apiGroupStatus'),
-            keyText: document.getElementById('apiKeyStatusText'),
-            keyIndicator: document.getElementById('apiKeyStatusIndicator'),
-            urlText: document.getElementById('apiUrlStatusText'),
-            urlIndicator: document.getElementById('apiUrlStatusIndicator')
+        'model_loading_from_cache': {
+            indicator: 'status-warning',
+            tileConfig: {
+                headerText: 'LLM Loading Status',
+                buttonText: 'Cancel Loading',
+                buttonVisible: true,
+            },
+            domElements: {
+                group: dom.localLlmStatus.group,
+                modelStatusIndicator: dom.localLlmStatus.modelStatusIndicator,
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
         },
-
-        // Local LLM Status
-        localLlmStatus: {
-            group: document.getElementById('localLlmGroupStatus'),
-            modelNameText: document.getElementById('localLlmStatusModelNameText'),
-            modelNameIndicator: document.getElementById('localLlmModelNameStatusIndicator'),
-            modelStatusText: document.getElementById('localLlmModelStatusText'),
-            modelStatusIndicator: document.getElementById('localLlmModelStatusIndicator'),
-            cudaText: document.getElementById('cudaStatusText'),
-            cudaIndicator: document.getElementById('cudaStatusIndicator')
+        'model_ready': {
+            indicator: 'status-present',
+            tileConfig: {
+                headerText: 'LLM Computation Status',
+                buttonText: 'Summarize Again',
+                // Visibility will be decided dynamically in the listener
+            },
+            domElements: {
+                group: dom.localLlmStatus.group,
+                modelStatusIndicator: dom.localLlmStatus.modelStatusIndicator,
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
         },
-
-        // Settings Inputs & Buttons
-        settings: {
-            apiKeyInput: document.getElementById('apiKeyInput'),
-            setApiKeyBtn: document.getElementById('setApiKeyBtn'),
-            apiUrlInput: document.getElementById('apiUrlInput'),
-            setApiUrlBtn: document.getElementById('setApiUrlBtn'),
-            localModelInput: document.getElementById('localModelInput'),
-            setLocalModelBtn: document.getElementById('setLocalModelBtn')
+        'calling_api': {
+            indicator: 'status-warning',
+            tileConfig: {
+                buttonVisible: false, // Hide button when calling API
+            },
+            domElements: {
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
+        },
+        'generating': {
+            indicator: 'status-warning',
+            tileConfig: {
+                buttonText: 'Cancel Summary',
+                buttonVisible: true,
+            },
+            domElements: {
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
+        },
+        'success': {
+            indicator: 'status-present',
+            tileConfig: {
+                buttonText: 'Summarize Again',
+                buttonVisible: true,
+            },
+            domElements: {
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
+        },
+        'error': {
+            indicator: 'status-not-present',
+            tileConfig: {
+                buttonText: 'Summarize Again',
+                buttonVisible: true,
+                buttonDisabled: false,
+            },
+            domElements: {
+                group: dom.localLlmStatus.group,
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
+        },
+        'cancelled': {
+            indicator: 'status-not-present',
+            tileConfig: {
+                buttonText: 'Summarize Again',
+                buttonVisible: true,
+            },
+            domElements: {
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
         }
     };
 
     // ---------------------------------------------------
     // C. Setup & Initialization
     // ---------------------------------------------------
-
-    let chartManager;
-    let attentionChart;
-
 
     /**
      * Initializes chart managers,  adds event listeners and connects to the server.
@@ -306,18 +414,31 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.llmComputation.cancelBtn.addEventListener('click', () => {
             const buttonText = dom.llmComputation.cancelBtn.textContent;
 
-            if (buttonText === 'Cancel Summary') {
+            if (buttonText === 'Cancel Summary' || buttonText === 'Cancel Loading') {
                 console.log('Cancel button clicked. Emitting cancel_summary.');
                 socket.emit('cancel_summary');
                 dom.llmComputation.statusText.textContent = 'Cancellation requested...';
-                updateLLMComputationStatusTile(true, false, true, true);
-            } else if (buttonText === 'Summarize Again') {
-                console.log(`'Summarize Again' clicked. Restarting with mode: ${llmState.get('mode')}`);
-                socket.emit('restart_and_summarize', { // TODO: should be handled in backend, check for recursion error
-                    model_name: llmState.get('model'),
-                    use_llm: llmState.get('mode')
+
+                // Update the tile to show "Summarize Again" but disable it until the backend confirms the cancellation.
+                updateLLMComputationStatusTile({
+                    buttonText: 'Summarize Again',
+                    buttonDisabled: true
                 });
-                updateLLMComputationStatusTile(true, false, false, true, true);
+
+            } else if (buttonText === 'Summarize Again') {
+                const mode = llmState.get('mode');
+                console.log(`'Summarize Again' clicked. Restarting with mode: ${mode}`);
+
+                socket.emit('restart_and_summarize', {
+                    model_name: llmState.get('model'),
+                    use_llm: mode
+                });
+
+                // Disable the button to prevent double-clicks and update the header to if local LLM is selected.
+                updateLLMComputationStatusTile({
+                    headerText: mode === 1 ? 'LLM Loading Status' : 'LLM Computation Status',
+                    buttonDisabled: true
+                });
             }
         });
 
@@ -370,47 +491,50 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('summary_status', (data) => {
             console.log('Received summary status:', data);
 
+            // Always update the main message
             dom.llmComputation.statusText.textContent = data.message;
 
-            // TODO: fix percentage transmission
-            if (data.status === 'file_downloading') {
-                console.log('Received percentage update: ' + data.percent_file);
+            // Get the configuration for the current status
+            const config = statusConfigs[data.status];
+            if (!config) return; // Exit if the status is unknown
+
+            setIndicatorStatus(
+                Object.values(config.domElements),
+                config.indicator
+            );
+            const tileConfig = {...config.tileConfig}; // Create a mutable copy
+
+            // The model is ready and a summary can be started
+            if (data.status === 'model_ready') {
+                dom.localLlmStatus.modelStatusText.textContent = 'Ready';
+                // Only show "Summarize Again" if a summary has been successful before
+                tileConfig.buttonVisible = state.hasSummaryBeenSuccessful;
             }
 
-            // TODO: use updateTileStatus?
-            switch (data.status) {
-                case 'initializing':
-                case 'model_downloading':
-                case 'model_loading_from_cache':
-                    dom.localLlmStatus.modelStatusText.textContent = 'Loading';
-                    dom.localLlmStatus.group.className = 'status-indicator status-warning'
-                    dom.localLlmStatus.modelStatusIndicator.className = 'status-indicator status-warning';
-                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-warning'; // Yellow: In progress
-                    updateLLMComputationStatusTile(true, true, false, false, true);
-                    break;
-                case 'model_ready':
-                    dom.localLlmStatus.modelStatusText.textContent = 'Ready';
-                    dom.localLlmStatus.modelStatusIndicator.className = 'status-indicator status-present';
-                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-present';
-                    break;
-                case 'calling_api':
-                case 'generating':
-                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-warning';
-                    updateLLMComputationStatusTile(true, true, false, true);
-                    break;
-                case 'success':
-                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-present'; // Green: Success
-                    updateLLMComputationStatusTile(true, false);
-                    break;
-                case 'error':
-                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-not-present'; // Red: Error
-                    updateLLMComputationStatusTile(true, false, true);
-                    break;
-                case 'cancelled':
-                    dom.llmComputation.statusIndicator.className = 'group-status-indicator status-not-present'; // Red: Cancelled
-                    updateLLMComputationStatusTile(true, false);
-                    break;
+            // Update the success state
+            if (data.status === 'success') {
+                // Any of these states mean the user has tried to get a summary
+                state.hasSummaryBeenSuccessful = true;
             }
+
+            // The model is currently loading
+            if (data.status === 'initializing' || data.status === 'model_downloading' || data.status === 'model_loading_from_cache') {
+                dom.localLlmStatus.modelStatusText.textContent = 'Loading';
+            }
+
+            // The model is not yet ready, and the user has cancelled the summary: the button is disabled until a new model is set
+            if (data.status === 'cancelled' && (state.lastState === 'initializing' ||
+                state.lastState === 'model_downloading' || state.lastState === 'model_loading_from_cache')) {
+
+                tileConfig.buttonDisabled = true;
+                dom.localLlmStatus.modelStatusText.textContent = 'Cancelled';
+                setIndicatorStatus([dom.localLlmStatus.group, dom.localLlmStatus.modelStatusIndicator], 'status-not-present');
+            }
+
+            // 3. Update the computation tile
+            updateLLMComputationStatusTile(tileConfig);
+
+            state.lastState = data.status;
         });
     }
 
@@ -548,43 +672,66 @@ document.addEventListener('DOMContentLoaded', () => {
      * Toggles tracking state of the program and clears user history.
      */
     function toggleTracking() {
-
         state.isTracking = !state.isTracking;
         dom.trackBtn.classList.toggle('active', state.isTracking);
         dom.trackBtnText.textContent = state.isTracking ? 'Stop & Summarize' : 'Start Tracking';
 
         if (state.isTracking) {
-            // Clear history for all existing participants but keep their names/IDs
-            for (const id in state.participants) {
-                state.participants[id].history = [];
-                state.participants[id].attentionHistory = [];
-            }
+            // Starting tracking
+
+            // Clear history for all existing participants
+            Object.values(state.participants).forEach(p => {
+                p.history = [];
+                p.attentionHistory = [];
+            });
             dom.summaryContainer.classList.add('hidden');
             dom.summaryReport.innerHTML = '';
 
-            updateLLMComputationStatusTile(true, false, false, false, true); // Tile visible without button
+            // Show the tile with a loading header but no button
+            updateLLMComputationStatusTile({
+                headerText: 'LLM Loading Status',
+                buttonVisible: false
+            });
 
-            // Hide status tile after two seconds
+            // Hide status tile after a delay
             const hideTileAfterDelay = () => {
                 setTimeout(() => {
                     dom.llmComputation.tile.style.display = 'none';
-                }, 3000);
+                }, 2000);
             };
             llmState.onReady(hideTileAfterDelay);
 
             socket.emit('start_tracking');
             state.sendIntervalId = setInterval(sendFrame, FRAME_SEND_INTERVAL_MS);
 
-
         } else {
-            dom.llmComputation.statusText.textContent = 'Initializing...';
-            dom.llmComputation.statusIndicator.className = 'group-status-indicator status-warning'; // Yellow for in-progress
-            dom.llmComputation.tile.style.display = 'block';
-            updateLLMComputationStatusTile(true, true, false, false);
-            dom.llmComputation.cancelBtn.disabled = false;
+            // Stopping tracking & starting summary
+
             clearInterval(state.sendIntervalId);
             state.sendIntervalId = null;
-            socket.emit("get_summary", {use_llm: llmState.get('mode')});
+
+            // Update the tile to show the cancel button is available
+            updateLLMComputationStatusTile({
+                buttonText: 'Cancel Summary',
+                buttonVisible: true,
+                buttonDisabled: false
+            });
+
+            dom.llmComputation.statusText.textContent = 'Initializing...';
+            setIndicatorStatus([dom.llmComputation.statusIndicator], 'status-warning');
+
+            const mode = llmState.get('mode');
+
+            // If the model is not ready and the selected method is local LLM, first load the model before summarizing
+            if (!llmState.get('isReady') && mode === 1) {
+                socket.emit('restart_and_summarize', {
+                    model_name: llmState.get('model'),
+                    use_llm: llmState.get('mode')
+                });
+            } else {
+                // If the model is already loaded or another summary method is selected, the summary is requested directly
+                socket.emit('get_summary', {use_llm: llmState.get('mode')});
+            }
         }
     }
 
@@ -1249,6 +1396,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------
 
     /**
+     * Sets the status class for one or more indicator elements.
+     * @param {HTMLElement[]} elements - An array of indicator elements to update.
+     * @param {string} statusClass - The class to apply ('status-present', 'status-not-present', 'status-warning').
+     */
+    function setIndicatorStatus(elements, statusClass) {
+        const validStati = ['status-present', 'status-not-present', 'status-warning'];
+        elements.forEach(el => {
+            if (el) {
+                el.classList.remove(...validStati);
+                el.classList.add(statusClass);
+            }
+        });
+    }
+
+
+    /**
      * Updates the status text and visual indicator for a tile element.
      *
      * @param {HTMLElement} textEl - The element where the status text is displayed.
@@ -1301,7 +1464,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (modelPresent && modelAvailability && cudaAvailable) {
             dom.localLlmStatus.group.classList.add('status-present');
         } else if (modelPresent && modelAvailability && !cudaAvailable) {
-            dom.localLlmStatus.group.classList.add('status-warning');
+            dom.localLlmStatus.group.classList.add('status-flashing');
         } else {
             dom.localLlmStatus.group.classList.add('status-not-present');
         }
@@ -1404,35 +1567,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     /**
-     * Updates the local LLM computation status tile
-     * @param tileVisible true === tile is visible and by default, false otherwise
-     * @param buttonShowsCancelSummary true === button displays "Cancel Summary", false === button displays "Summarize again" and by default
-     * @param buttonDisabled true === button is disabled, false otherwise and by default
-     * @param buttonVisible true === button is visible and by default, false otherwise
-     * @param loadingModel true === tile displays "LLM Loading Status", "LLM Computation Status" otherwise and by default
+     * Updates the LLM computation status tile based on a configuration object.
+     * @param {object} config
+     * @param {boolean} [config.tileVisible=true] - Is the entire tile visible?
+     * @param {string} [config.headerText='LLM Computation Status'] - The tile's header text.
+     * @param {string} [config.buttonText] - The text for the button (e.g., 'Cancel Summary').
+     * @param {boolean} [config.buttonVisible=true] - Is the button visible?
+     * @param {boolean} [config.buttonDisabled=false] - Is the button disabled?
      */
-    function updateLLMComputationStatusTile(tileVisible = true, buttonShowsCancelSummary = false,
-                                            buttonDisabled = false, buttonVisible = true, loadingModel = false) {
+    function updateLLMComputationStatusTile(config = {}) {
+        // Set default values
+        const defaults = {
+            tileVisible: true,
+            headerText: 'LLM Computation Status',
+            buttonText: 'Summarize Again',
+            buttonVisible: true,
+            buttonDisabled: false,
+        };
+        // Merge provided config with defaults
+        const finalConfig = {...defaults, ...config};
 
-        if (!dom.llmComputation.cancelBtn) return; // safety check
+        if (!dom.llmComputation.cancelBtn) return; // Safety check
 
-        // Entire tile is hidden
-        if (!tileVisible) {
-            dom.llmComputation.tile.style.display = 'none';
-            return;
-        }
+        dom.llmComputation.tile.style.display = finalConfig.tileVisible ? 'block' : 'none';
+        if (!finalConfig.tileVisible) return;
 
-        // Handle button visibility
-        if (!buttonVisible) {
-            dom.llmComputation.cancelBtn.style.display = 'none';
-        } else {
-            dom.llmComputation.cancelBtn.style.display = 'block';
-        }
-
-        dom.llmComputation.tile.style.display = 'block';
-        dom.llmComputation.cancelBtn.disabled = buttonDisabled;
-        dom.llmComputation.headerText.textContent = loadingModel ? 'LLM Loading Status' : 'LLM Computation Status';
-        dom.llmComputation.cancelBtn.textContent = buttonShowsCancelSummary ? 'Cancel Summary' : 'Summarize Again';
+        dom.llmComputation.headerText.textContent = finalConfig.headerText;
+        dom.llmComputation.cancelBtn.style.display = finalConfig.buttonVisible ? 'block' : 'none';
+        dom.llmComputation.cancelBtn.textContent = finalConfig.buttonText;
+        dom.llmComputation.cancelBtn.disabled = finalConfig.buttonDisabled;
     }
 
 
