@@ -18,7 +18,10 @@ sys.path.insert(0, project_root)
 from model.model import EmotionCNN
 from server.analysis import FaceReIDTracker, RemoteLLM, analyze_frame, llm_process_worker, generate_summary_payload, \
     LocalLLM
-from server.extensions import socketio, app, APP_STATE, LLM_API_KEY, DEFAULT_LLM_API_URL, DEFAULT_LOCAL_LLM_MODEL_NAME
+# At the top
+import server.extensions as extensions
+from server.extensions import socketio, app, APP_STATE, DEFAULT_LLM_API_URL, DEFAULT_LOCAL_LLM_MODEL_NAME
+
 
 
 # --- Global State for the Worker Thread ---
@@ -197,7 +200,7 @@ def create_app():
         :return:
         """
         status = {
-            "api_key_present": LLM_API_KEY is not None and LLM_API_KEY != "",
+            "api_key_present": extensions.LLM_API_KEY is not None and extensions.LLM_API_KEY != "",
             "api_url_present": CURRENT_LLM_API_URL is not None and CURRENT_LLM_API_URL != "",
             "local_model_present": CURRENT_LOCAL_LLM_MODEL_NAME is not None and CURRENT_LOCAL_LLM_MODEL_NAME != "",
             "cuda_available": torch.cuda.is_available(),
@@ -228,16 +231,16 @@ def create_app():
     @socketio.on('set_api_key')
     def on_set_api_key(data):
         """Client is setting a new API key."""
-        global LLM_API_KEY, remote_llm # TODO: Global variable 'LLM_API_KEY' is undefined at the module level
+        global remote_llm
         new_key = data.get('key')
 
         if new_key and new_key.strip():
-            LLM_API_KEY = new_key
+            extensions.LLM_API_KEY = new_key
             print("INFO: API Key has been set by the user.")
             with llm_lock:
                 remote_llm = None  # Invalidate old instance
         else:
-            LLM_API_KEY = None
+            extensions.LLM_API_KEY = None
             print("INFO: API Key has been cleared.")
 
         emit_status_update()  # Send a full status update after changing the key
