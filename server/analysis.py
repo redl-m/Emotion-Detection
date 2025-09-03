@@ -179,80 +179,88 @@ class FaceReIDTracker:
 
 class TqdmProgressCapturer(io.TextIOBase):
     """
-    A file-like object that captures stdout, parses tqdm progress,
-    and sends throttled updates to a queue.
+    A file-like object that captures stdout/stderr, buffers the output,
+    parses tqdm progress, and sends throttled updates to a queue.
     """
+
+    def __init__(self, status_queue, file_info, original_stream):
+        self.status_queue = status_queue
+        self.file_info = file_info
+        self.original_stream = original_stream  # sys.stdout or sys.stderr
+        self.line_buffer = ""
+        self.last_percent = -1
+        self.percent_regex = re.compile(r"(\d+)%\|")
+
+    def write(self, s):
+        # Write to the actual console first
+        self.original_stream.write(s)
+        self.original_stream.flush()
+
+        # Add the new chunk to the line buffer
+        self.line_buffer += s
+
+        # Process the buffer if we see a carriage return or a newline
+        if '\r' in s or '\n' in s:
+            # Search for the percentage in the complete line
+            match = self.percent_regex.search(self.line_buffer)
+            if match:
+                percent = int(match.group(1))
+                if percent > self.last_percent:
+                    self.last_percent = percent
+
+                    self.status_queue.put({
+                        'type': 'model_downloading',
+                        'payload': {
+                            'status': 'percentage_update',
+                            'message': f"Downloading {self.file_info.path}",
+                            'percent_file': percent,
+                            'filename': self.file_info.path
+                        }
+                    })
+
+            # Clear the buffer after processing the line
+            self.line_buffer = ""
+
+        return len(s)
+
+    # Methods for Robustness
+    def flush(self):
+        self.original_stream.flush()
+
+    def isatty(self):
+        return self.original_stream.isatty()
+
+    def fileno(self):
+        return self.original_stream.fileno()
+
+    @property
+    def encoding(self):
+        return self.original_stream.encoding
+
+
+class ProgressRedirector:
+    """
+    A context manager to safely redirect BOTH stdout and stderr to our capturer.
+    """
+
     def __init__(self, status_queue, file_info):
         self.status_queue = status_queue
         self.file_info = file_info
         self.original_stdout = sys.stdout
-        self.last_percent = -1
-        # Specific regex to capture the percentage from tqdm's output
-        self.percent_regex = re.compile(r"(\d+)%\|")
-
-    def write(self, s):
-        # Write the output to the actual console first so the user can see it
-        self.original_stdout.write(s)
-
-        # Try to find a percentage in the string
-        match = self.percent_regex.search(s)
-        if match:
-            percent_str = match.group(1)
-            percent = int(percent_str)
-
-            # Throttle updates: only send if the percentage has changed
-            if percent > self.last_percent:
-                self.last_percent = percent
-                # TODO: both print statement and status queue entry never get written -> percentage does not get emitted
-                self.original_stdout.write(f"INFO: Percentage has been updated to: {percent}%.\n")
-                self.status_queue.put({
-                    'type': 'status',
-                    'payload': {
-                        'status': 'file_downloading',
-                        'message': f"Downloading {self.file_info.path}",
-                        'percent_file': percent,
-                        'filename': self.file_info.path
-                    }
-                })
-        # The write method should return the number of characters written
-        return len(s)
-
-    # --- Added Methods for Robustness ---
-    def flush(self):
-        """Pass the flush command to the original stdout."""
-        self.original_stdout.flush()
-
-    def isatty(self):
-        """Pretend to be an interactive terminal if the original stdout is."""
-        return self.original_stdout.isatty()
-
-    def fileno(self):
-        """Return the file descriptor number of the original stdout."""
-        return self.original_stdout.fileno()
-
-    @property
-    def encoding(self):
-        """Return the encoding of the original stdout."""
-        return self.original_stdout.encoding
-
-
-# Context manager to safely redirect stdout
-class ProgressRedirector:
-    def __init__(self, status_queue, file_info):
-        self.status_queue = status_queue
-        self.file_info = file_info
-        self.capturer = None
+        self.original_stderr = sys.stderr
+        self.stdout_capturer = TqdmProgressCapturer(status_queue, file_info, self.original_stdout)
+        self.stderr_capturer = TqdmProgressCapturer(status_queue, file_info, self.original_stderr)
 
     def __enter__(self):
-        # Create the capturer instance and redirect stdout
-        self.capturer = TqdmProgressCapturer(self.status_queue, self.file_info)
-        sys.stdout = self.capturer
+        # Redirect both streams
+        sys.stdout = self.stdout_capturer
+        sys.stderr = self.stderr_capturer
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # IMPORTANT: Always restore the original stdout
-        if self.capturer:
-            sys.stdout = self.capturer.original_stdout
+        # Restore the original streams
+        sys.stdout = self.original_stdout
+        sys.stderr = self.original_stderr
 
 
 # ---------------- REMOTE LLM (API-BASED) SETUP ----------------
@@ -459,17 +467,6 @@ class LocalLLM:
             return True
         except Exception:
             return False
-
-    # TODO: not used
-    def custom_progress_callback(self, percent):
-        print(f"Downloaded {percent}%")
-        self.status_queue.put({
-            'type': 'status',
-            'payload': {
-                'status': 'model_downloading',
-                'message': f'{self.model_name}: {percent}% downloaded.'
-            }
-        })
 
     def download_with_progress(self):
         """

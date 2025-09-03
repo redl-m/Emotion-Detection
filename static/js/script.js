@@ -70,7 +70,10 @@ document.addEventListener('DOMContentLoaded', () => {
             modelStatusText: document.getElementById('localLlmModelStatusText'),
             modelStatusIndicator: document.getElementById('localLlmModelStatusIndicator'),
             cudaText: document.getElementById('cudaStatusText'),
-            cudaIndicator: document.getElementById('cudaStatusIndicator')
+            cudaIndicator: document.getElementById('cudaStatusIndicator'),
+            progressBarContainer: document.getElementById('downloadProgressContainer'),
+            progressBarFill: document.getElementById('downloadProgressBarFill'),
+            progressBarText: document.getElementById('downloadProgressBarText')
         },
 
         // Settings Inputs & Buttons
@@ -318,6 +321,54 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+
+    /*
+    Encapsulates all logic for controlling the download progress bar.
+     */
+    const progressBarManager = {
+        // Direct reference to the necessary DOM elements
+        elements: {
+            container: dom.localLlmStatus.progressBarContainer,
+            fill: dom.localLlmStatus.progressBarFill,
+            text: dom.localLlmStatus.progressBarText,
+            statusText: dom.llmComputation.statusText // The main status message element
+        },
+
+        /**
+         * Shows the progress bar and sets its initial state.
+         * @param {string} initialMessage The message to display while starting.
+         */
+        show(initialMessage = 'Starting download...') {
+            this.elements.statusText.textContent = initialMessage;
+            this.elements.fill.style.width = '0%';
+            this.elements.text.textContent = '0%';
+            this.elements.container.classList.remove('hidden');
+        },
+
+        /**
+         * Hides the progress bar.
+         */
+        hide() {
+            this.elements.container.classList.add('hidden');
+        },
+
+        /**
+         * Updates the progress bar's percentage and message.
+         * @param {number} percent The percentage (0-100).
+         * @param {string} message The message to display (e.g., "Downloading file.gguf").
+         */
+        update(percent, message) {
+            // Ensure percent is within bounds
+            const clampedPercent = Math.max(0, Math.min(100, percent));
+
+            this.elements.fill.style.width = clampedPercent + '%';
+            this.elements.text.textContent = Math.round(clampedPercent) + '%';
+            if (message) {
+                this.elements.statusText.textContent = message;
+            }
+        }
+    };
+
     // ---------------------------------------------------
     // C. Setup & Initialization
     // ---------------------------------------------------
@@ -491,8 +542,10 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('summary_status', (data) => {
             console.log('Received summary status:', data);
 
-            // Always update the main message
-            dom.llmComputation.statusText.textContent = data.message;
+            //Update the main status unless its a model_downloading update
+            if (data.status !== 'model_downloading') {
+                dom.llmComputation.statusText.textContent = data.message;
+            }
 
             // Get the configuration for the current status
             const config = statusConfigs[data.status];
@@ -503,6 +556,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 config.indicator
             );
             const tileConfig = {...config.tileConfig}; // Create a mutable copy
+
+            // Decide on the progress bar's visibility
+            if (data.status === 'model_downloading') {
+                progressBarManager.show(data.message);
+            } else {
+                progressBarManager.hide();
+            }
 
             // The model is ready and a summary can be started
             if (data.status === 'model_ready') {
@@ -535,6 +595,11 @@ document.addEventListener('DOMContentLoaded', () => {
             updateLLMComputationStatusTile(tileConfig);
 
             state.lastState = data.status;
+        });
+
+        // Listener for percentage updates when downloading models
+        socket.on('model_downloading', (data) => {
+            progressBarManager.update(data.percent_file, data.message);
         });
     }
 

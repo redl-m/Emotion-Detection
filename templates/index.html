@@ -152,11 +152,15 @@
 
             <div class="status-group-container chart-container" id="llmComputationTile" style="display: none;">
                 <div class="group-header">
-                    <h3 id = "llmHeaderText">LLM Computation Status</h3>
+                    <h3 id="llmHeaderText">LLM Computation Status</h3>
                     <div class="group-status-indicator status-warning" id="llmStatusIndicator"></div>
                 </div>
                 <div class="status-tile">
                     <span class="status-text" id="llmStatusText" style="font-style: italic;">Starting...</span>
+                    <div id="downloadProgressContainer" class="progress-bar-container hidden">
+                    <div id="downloadProgressBarFill" class="progress-bar-fill"></div>
+                    <span id="downloadProgressBarText" class="progress-bar-text"></span>
+                </div>
                 </div>
                 <div class="settings-input-group" style="justify-content: center;">
                     <button id="cancelSummaryBtn" class="control-button">Cancel Summary</button>

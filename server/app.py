@@ -333,8 +333,9 @@ def create_app():
                                 _execute_local_summary()
                                 # Clear the task so it doesn't run again
                                 pending_summary_task = None
-                elif message_type == 'file_downloading' or message_type == 'model_downloading':
-                    print("Message type was not set properly before")
+                # Percentage update for progress bar
+                elif message_type == 'model_downloading':
+                    socketio.emit('model_downloading', message['payload'])
             except Exception as e:
                 print(f"ERROR in queue_listener: {e}")
 
@@ -435,12 +436,12 @@ def create_app():
                     if use_llm_mode == 2:
                         global remote_llm
                         with llm_lock:
-                            if not LLM_API_KEY:
+                            if not extensions.LLM_API_KEY:
                                 raise ValueError("API Key is not set.")
                             if remote_llm is None:
                                 socketio.emit('summary_status',
                                               {'status': 'calling_api', 'message': 'Initializing remote LLM client...'})
-                                remote_llm = RemoteLLM(api_key=LLM_API_KEY, api_url=CURRENT_LLM_API_URL)
+                                remote_llm = RemoteLLM(api_key=extensions.LLM_API_KEY, api_url=CURRENT_LLM_API_URL)
                                 print("INFO: Remote LLM client is ready.")
                         active_llm = remote_llm
 

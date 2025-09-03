@@ -555,6 +555,12 @@ path.line-ts {
     padding: 0.75rem 0;
 }
 
+#llmComputationTile .status-tile {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+}
+
 /* Tile header wrapper */
 .tile-header {
     display: flex;
@@ -682,6 +688,78 @@ path.line-ts {
     background-color: var(--button-hover-bg);
 }
 
+/* Progress Bar */
+.progress-bar-container {
+    width: 100%;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    height: 20px;
+}
+
+.progress-bar-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text-color);
+    font-weight: 600; /* Bolder to stand out */
+    font-size: 12px;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+/* Utility class to hide the element */
+.hidden {
+    display: none !important;
+}
+
+/* Progress bar shimmer */
+.progress-bar-fill {
+    position: relative;
+    overflow: hidden;
+    height: 100%;
+    width: 0%;
+    background-color: var(--accent-color);
+    border-radius: 8px;
+    transition: width 0.2s ease-in-out, background-color 0.3s ease;
+}
+
+
+/* Shimmer element using a pseudo-element */
+.progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+
+    background-image: linear-gradient(
+        60deg,  /* The angle of the shimmer */
+        transparent 40%,
+        rgba(255, 255, 255, 0.25) 50%, /* The subtle, bright highlight */
+        transparent 60%
+    );
+
+    transform: translateX(-100%); /* Start the shimmer off-screen to the left */
+    animation: shimmer 3.5s ease-in-out infinite;
+}
+
+
+/* Animation that moves the shimmer */
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    20% {
+        transform: translateX(100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
 
 /* ==========================================================================
    5. MERGE MODAL
