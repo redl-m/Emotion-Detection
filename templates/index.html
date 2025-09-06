@@ -158,9 +158,9 @@
                 <div class="status-tile">
                     <span class="status-text" id="llmStatusText" style="font-style: italic;">Starting...</span>
                     <div id="downloadProgressContainer" class="progress-bar-container hidden">
-                    <div id="downloadProgressBarFill" class="progress-bar-fill"></div>
-                    <span id="downloadProgressBarText" class="progress-bar-text"></span>
-                </div>
+                        <div id="downloadProgressBarFill" class="progress-bar-fill"></div>
+                        <span id="downloadProgressBarText" class="progress-bar-text"></span>
+                    </div>
                 </div>
                 <div class="settings-input-group" style="justify-content: center;">
                     <button id="cancelSummaryBtn" class="control-button">Cancel Summary</button>
@@ -176,7 +176,10 @@
                     <input type="text" id="localModelInput"
                            placeholder="Enter model name"
                            autocomplete="off">
-                    <button id="setLocalModelBtn">Set</button>
+                    <button id="setLocalModelBtn" class="set-button">
+                        <span class="button-text">Set</span>
+                        <span class="button-icon">✓</span>
+                    </button>
                     <div id="localModelHistory" class="history-dropdown"></div>
                 </div>
             </div>
@@ -187,7 +190,10 @@
                 </div>
                 <div class="settings-input-group">
                     <input type="password" id="apiKeyInput" placeholder="Enter new API Key">
-                    <button id="setApiKeyBtn">Set</button>
+                    <button id="setApiKeyBtn" class="set-button">
+                        <span class="button-text">Set</span>
+                        <span class="button-icon">✓</span>
+                    </button>
                 </div>
             </div>
 
@@ -198,7 +204,10 @@
                 <div class="settings-input-group history-container"><input type="text" id="apiUrlInput"
                                                                            placeholder="Enter new API URL"
                                                                            autocomplete="off">
-                    <button id="setApiUrlBtn">Set</button>
+                    <button id="setApiUrlBtn" class="set-button">
+                        <span class="button-text">Set</span>
+                        <span class="button-icon">✓</span>
+                    </button>
                     <div id="apiUrlHistory" class="history-dropdown"></div>
                 </div>
             </div>
@@ -210,7 +219,10 @@
                 <div class="settings-input-group history-container"><input type="text" id="apiModelInput"
                                                                            placeholder="Enter new API Model"
                                                                            autocomplete="off">
-                    <button id="setApiModelBtn">Set</button>
+                    <button id="setApiModelBtn" class="set-button">
+                        <span class="button-text">Set</span>
+                        <span class="button-icon">✓</span>
+                    </button>
                     <div id="apiModelHistory" class="history-dropdown"></div>
                 </div>
             </div>

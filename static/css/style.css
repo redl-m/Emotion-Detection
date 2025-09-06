@@ -202,6 +202,43 @@ button.track-button.active {
     border-color: var(--status-red);
 }
 
+/* Set-buttons */
+.set-button {
+    position: relative;
+    overflow: hidden;
+}
+
+.set-button .button-text,
+.set-button .button-icon {
+    transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+    white-space: nowrap;
+}
+
+.set-button .button-icon {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(0.6);
+    opacity: 0;
+    font-size: 1.2em;
+}
+
+.set-button .button-text {
+    transform: scale(1);
+    opacity: 1;
+}
+
+.set-button.success .button-text {
+    transform: scale(0.6);
+    opacity: 0;
+}
+
+.set-button.success .button-icon {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+    transition-delay: 0.1s;
+}
+
 /* --- LLM Summary Slider --- */
 .llm-slider-container {
     position: relative;
@@ -633,22 +670,36 @@ path.line-ts {
 }
 
 @keyframes flash-green-orange {
-  /* Green fade in/out */
-  0%   { background-color: var(--border-color); }
-  10%  { background-color: var(--status-green); }
-  40%  { background-color: var(--status-green); }
-  50%  { background-color: var(--border-color); }
+    /* Green fade in/out */
+    0% {
+        background-color: var(--border-color);
+    }
+    10% {
+        background-color: var(--status-green);
+    }
+    40% {
+        background-color: var(--status-green);
+    }
+    50% {
+        background-color: var(--border-color);
+    }
 
-  /* Orange fade in/out */
-  60%  { background-color: var(--status-orange); }
-  90%  { background-color: var(--status-orange); }
-  100% { background-color: var(--border-color); }
+    /* Orange fade in/out */
+    60% {
+        background-color: var(--status-orange);
+    }
+    90% {
+        background-color: var(--status-orange);
+    }
+    100% {
+        background-color: var(--border-color);
+    }
 }
 
 .status-indicator.status-flashing,
 .group-status-indicator.status-flashing {
-  animation: flash-green-orange 2.5s infinite;
-  transition: background-color 0.6s ease-in-out;
+    animation: flash-green-orange 2.5s infinite;
+    transition: background-color 0.6s ease-in-out;
 }
 
 /* Settings Input Fields */
@@ -737,10 +788,8 @@ path.line-ts {
     right: 0;
 
     background-image: linear-gradient(
-        60deg,  /* The angle of the shimmer */
-        transparent 40%,
-        rgba(255, 255, 255, 0.25) 50%, /* The subtle, bright highlight */
-        transparent 60%
+            60deg, /* The angle of the shimmer */ transparent 40%,
+            rgba(255, 255, 255, 0.25) 50%, /* The subtle, bright highlight */ transparent 60%
     );
 
     transform: translateX(-100%); /* Start the shimmer off-screen to the left */

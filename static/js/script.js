@@ -432,6 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
             socket.emit('set_api_key', {key: key});
             dom.settings.apiKeyInput.value = ''; // Clear input for security
             dom.settings.apiKeyInput.placeholder = "API Key has been set";
+            triggerTransition(dom.settings.setApiKeyBtn);
             setTimeout(() => {
                 dom.settings.apiKeyInput.placeholder = "Enter new API Key";
             }, 2000);
@@ -441,18 +442,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const url = dom.settings.apiUrlInput.value.trim();
             socket.emit('set_api_url', {url: url});
             dom.settings.apiUrlInput.value = ''; // Clear input field after setting
+            triggerTransition(dom.settings.setApiUrlBtn);
         });
 
         dom.settings.setApiModelBtn.addEventListener('click', () => {
             const model = dom.settings.apiModelInput.value.trim();
             socket.emit('set_api_model', {api_model: model});
             dom.settings.apiUrlInput.value = ''; // Clear input field after setting
+            triggerTransition(dom.settings.setApiModelBtn);
         });
 
         dom.settings.setLocalModelBtn.addEventListener('click', () => {
             llmState.set('model', dom.settings.localModelInput.value.trim());
             socket.emit('set_local_model', {model_name: llmState.get('model')});
             dom.settings.localModelInput.value = ''; // Clear input field after setting
+            triggerTransition(dom.settings.setLocalModelBtn);
         });
 
         // Show history on input focus
@@ -1687,6 +1691,27 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.llmComputation.cancelBtn.style.display = finalConfig.buttonVisible ? 'block' : 'none';
         dom.llmComputation.cancelBtn.textContent = finalConfig.buttonText;
         dom.llmComputation.cancelBtn.disabled = finalConfig.buttonDisabled;
+    }
+
+
+    /*
+    Updates the status indicator for the given elements.
+    */
+    function triggerTransition(button) {
+
+        if (button.classList.contains('success')) {
+            return;
+        }
+
+        // Trigger the CSS animation
+        button.classList.add('success');
+        button.disabled = true;
+
+        // Revert back to original state
+        setTimeout(() => {
+            button.classList.remove('success');
+            button.disabled = false;
+        }, 2000);
     }
 
 
