@@ -20,7 +20,7 @@ from server.analysis import FaceReIDTracker, RemoteLLM, analyze_frame, llm_proce
     LocalLLM
 # At the top
 import server.extensions as extensions
-from server.extensions import socketio, app, APP_STATE, DEFAULT_LLM_API_URL, DEFAULT_LOCAL_LLM_MODEL_NAME
+from server.extensions import socketio, app, APP_STATE, DEFAULT_LLM_API_URL, DEFAULT_LLM_API_MODEL, DEFAULT_LOCAL_LLM_MODEL_NAME
 
 
 
@@ -55,6 +55,7 @@ is_model_loading = threading.Event()
 
 # --- Global Settings Configuration ---
 CURRENT_LLM_API_URL = DEFAULT_LLM_API_URL
+CURRENT_LLM_API_MODEL = DEFAULT_LLM_API_MODEL
 CURRENT_LOCAL_LLM_MODEL_NAME = DEFAULT_LOCAL_LLM_MODEL_NAME
 
 
@@ -205,12 +206,20 @@ def create_app():
             "local_model_present": CURRENT_LOCAL_LLM_MODEL_NAME is not None and CURRENT_LOCAL_LLM_MODEL_NAME != "",
             "cuda_available": torch.cuda.is_available(),
             "api_url": CURRENT_LLM_API_URL,
+            "api_model_name": CURRENT_LLM_API_MODEL,
             "local_model_name": CURRENT_LOCAL_LLM_MODEL_NAME,
             "default_api_url": DEFAULT_LLM_API_URL,
             "default_local_model_name": DEFAULT_LOCAL_LLM_MODEL_NAME,
             "local_model_ready": APP_STATE.get("local_model_ready")
         }
         socketio.emit('status_update', status)
+
+    def _invalidate_remote_llm():
+        """Helper function to safely invalidate the remote LLM instance."""
+        global remote_llm
+        with llm_lock:
+            remote_llm = None
+        print("INFO: Remote LLM instance invalidated due to configuration change.")
 
 
     @socketio.on('connect')
@@ -231,18 +240,16 @@ def create_app():
     @socketio.on('set_api_key')
     def on_set_api_key(data):
         """Client is setting a new API key."""
-        global remote_llm
         new_key = data.get('key')
 
         if new_key and new_key.strip():
             extensions.LLM_API_KEY = new_key
             print("INFO: API Key has been set by the user.")
-            with llm_lock:
-                remote_llm = None  # Invalidate old instance
         else:
             extensions.LLM_API_KEY = None
             print("INFO: API Key has been cleared.")
 
+        _invalidate_remote_llm()
         emit_status_update()  # Send a full status update after changing the key
 
     # Handler for setting the API URL
@@ -259,8 +266,24 @@ def create_app():
             CURRENT_LLM_API_URL = DEFAULT_LLM_API_URL
             print(f"INFO: API URL cleared. Reverting to default: {CURRENT_LLM_API_URL}")
 
-        with llm_lock:
-            remote_llm = None  # Invalidate to force recreation
+        _invalidate_remote_llm() # Invalidate to force recreation
+        emit_status_update()
+
+    # Handler for setting the API Model
+    @socketio.on('set_api_model')
+    def on_set_api_model(data):
+
+        global CURRENT_LLM_API_MODEL, remote_llm
+        new_model = data.get('api_model', '').strip()
+
+        if new_model:
+            CURRENT_LLM_API_MODEL = new_model
+            print(f"INFO: API Model set to: {CURRENT_LLM_API_MODEL}")
+        else:
+            CURRENT_LLM_API_MODEL = DEFAULT_LLM_API_MODEL
+            print(f"INFO: API Model reset. Reverting to default: {CURRENT_LLM_API_MODEL}")
+
+        _invalidate_remote_llm()
         emit_status_update()
 
     @socketio.on('set_local_model')
@@ -370,6 +393,7 @@ def create_app():
 
         if tasks_sent > 0:
             print(f"INFO: Sent {tasks_sent} summary task(s) to the LLM worker process.")
+            socketio.emit('setting_validated', {'type': 'local_model', 'value': CURRENT_LOCAL_LLM_MODEL_NAME})
             socketio.emit('summary_status',
                           {'status': 'generating', 'message': f'Sent {tasks_sent} task(s) to LLM worker.'})
         else:
@@ -441,8 +465,12 @@ def create_app():
                             if remote_llm is None:
                                 socketio.emit('summary_status',
                                               {'status': 'calling_api', 'message': 'Initializing remote LLM client...'})
-                                remote_llm = RemoteLLM(api_key=extensions.LLM_API_KEY, api_url=CURRENT_LLM_API_URL)
+                                remote_llm = RemoteLLM(api_key=extensions.LLM_API_KEY, api_url=CURRENT_LLM_API_URL, model=CURRENT_LLM_API_MODEL)
                                 print("INFO: Remote LLM client is ready.")
+                                socketio.emit('setting_validated',
+                                     {'type': 'api_model', 'value': CURRENT_LLM_API_MODEL})
+                                socketio.emit('setting_validated',
+                                     {'type': 'api_url', 'value': CURRENT_LLM_API_URL})
                         active_llm = remote_llm
 
                     socketio.emit('summary_status', {'status': 'generating', 'message': 'Generating summary...'})

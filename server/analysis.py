@@ -1,26 +1,23 @@
-import os
-import sys
-import threading
-import traceback
 import io
+import json
+import os
 import re
-
-import huggingface_hub
-import numpy as np
-import cv2
-import torch
-import face_recognition
+import sys
+import time
+import traceback
 from collections import OrderedDict, Counter
 
+import cv2
+import face_recognition
+import numpy as np
+import requests
+import torch
+from huggingface_hub import HfApi
 from huggingface_hub import hf_hub_download
 from huggingface_hub.hf_api import RepoFile
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, StoppingCriteria
-import time
-import requests
-import json
-from huggingface_hub import HfApi
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-from server.extensions import LLM_API_KEY, DEFAULT_LLM_API_URL, DEFAULT_LOCAL_LLM_MODEL_NAME, APP_STATE
+from server.extensions import DEFAULT_LOCAL_LLM_MODEL_NAME, APP_STATE
 
 
 def llm_process_worker(task_queue, result_queue, status_queue, model_name):
@@ -51,14 +48,12 @@ def llm_process_worker(task_queue, result_queue, status_queue, model_name):
             })
             summary_text = generate_ai_narrative_summary(**task_data, llm=local_llm)
 
-            # Put the result back in a dictionary, now including the person_id.
+            # Put the result back in a dictionary
             result_payload = {
                 "summary": summary_text,
                 "person_id": person_id
             }
             result_queue.put(result_payload)
-
-            # print("DEBUG: Entry added to queue: " + str(result_payload))  # The summary gets sent correctly
 
             print(f"[Worker-{os.getpid()}] Task complete, result sent.")
 
@@ -269,8 +264,8 @@ class RemoteLLM:
     Wrapper for a remote LLM API endpoint.
     """
 
-    def __init__(self, api_key, api_url=DEFAULT_LLM_API_URL,
-                 model="gpt-3.5-turbo"):  # TODO: make model settable
+    def __init__(self, api_key, api_url,
+                 model):
         if not api_key:
             raise ValueError("API key is required for RemoteLLM.")
         self.api_key = api_key
@@ -290,7 +285,7 @@ class RemoteLLM:
                               (e.g., max_new_tokens, temperature, top_p).
         :return: A generated narrative string with special tokens removed.
         """
-        print(f"INFO: Calling remote LLM API ({self.model})...")
+        print(f"INFO: Calling remote LLM API: {self.model}.")
 
         payload = {
             "model": self.model,
@@ -374,7 +369,7 @@ class LocalLLM:
             else:
                 print("WARNING: CPU device detected. Quantization is disabled.")
 
-            print(f"INFO: Calling from_pretrained for '{model_name}'... This is the slow step.")
+            print(f"INFO: Calling from_pretrained for '{model_name}'.")
 
             if self.is_model_cached():
                 print(f"INFO: Loading '{model_name}' from cache.")
@@ -556,7 +551,7 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
 
     # ---------- LLM version ----------
     if llm:
-        print(f"INFO: Generating summary for {person_name} with LLM.")
+        print(f"INFO: Generating summary for {person_name} with local LLM: {llm.model_name}.")
         timeline_emotions = ", ".join([emotion_labels[e] for e in emotions_sequence])
 
         engagement_info = ""

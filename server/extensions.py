@@ -15,6 +15,7 @@ socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 LLM_API_KEY = None
 DEFAULT_LLM_API_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_LOCAL_LLM_MODEL_NAME = "tiiuae/falcon-7b-instruct"
+DEFAULT_LLM_API_MODEL = "gpt-3.5-turbo"
 
 # --- Shared Application State ---
 APP_STATE = {

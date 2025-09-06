@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // History Lists
         apiUrlHistory: document.getElementById('apiUrlHistory'),
+        apiModelHistory: document.getElementById('apiModelHistory'),
         localModelHistory: document.getElementById('localModelHistory'),
 
         // LLM Computation Status
@@ -82,6 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setApiKeyBtn: document.getElementById('setApiKeyBtn'),
             apiUrlInput: document.getElementById('apiUrlInput'),
             setApiUrlBtn: document.getElementById('setApiUrlBtn'),
+            apiModelInput: document.getElementById('apiModelInput'),
+            setApiModelBtn: document.getElementById('setApiModelBtn'),
             localModelInput: document.getElementById('localModelInput'),
             setLocalModelBtn: document.getElementById('setLocalModelBtn')
         }
@@ -126,6 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
             mode: 0, // 0: Heuristic, 1: Local LLM, 2: API LLM
             model: '',
             defaultApiUrl: '',
+            defaultApiModel: '',
             defaultLocalModel: ''
         },
 
@@ -135,6 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
             mode: [],
             model: [],
             defaultApiUrl: [],
+            defaultApiModel: [],
             defaultLocalModel: []
         },
 
@@ -438,6 +443,12 @@ document.addEventListener('DOMContentLoaded', () => {
             dom.settings.apiUrlInput.value = ''; // Clear input field after setting
         });
 
+        dom.settings.setApiModelBtn.addEventListener('click', () => {
+            const model = dom.settings.apiModelInput.value.trim();
+            socket.emit('set_api_model', {api_model: model});
+            dom.settings.apiUrlInput.value = ''; // Clear input field after setting
+        });
+
         dom.settings.setLocalModelBtn.addEventListener('click', () => {
             llmState.set('model', dom.settings.localModelInput.value.trim());
             socket.emit('set_local_model', {model_name: llmState.get('model')});
@@ -448,6 +459,9 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.settings.apiUrlInput.addEventListener('focus', () => {
             showHistory(dom.settings.apiUrlInput, dom.apiUrlHistory, 'apiUrlHistory', llmState.get('defaultApiUrl'));
         });
+        dom.settings.apiModelInput.addEventListener('focus', () => {
+            showHistory(dom.settings.apiModelInput, dom.apiModelHistory, 'apiModelHistory', llmState.get('defaultApiModel'));
+        });
         dom.settings.localModelInput.addEventListener('focus', () => {
             showHistory(dom.settings.localModelInput, dom.localModelHistory, 'localModelHistory', llmState.get('defaultLocalModel'));
         });
@@ -456,6 +470,9 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('click', (event) => {
             if (!dom.settings.apiUrlInput.contains(event.target) && !dom.apiUrlHistory.contains(event.target)) {
                 dom.apiUrlHistory.style.display = 'none';
+            }
+            if (!dom.settings.apiModelInput.contains(event.target) && !dom.apiModelHistory.contains(event.target)) {
+                dom.apiModelHistory.style.display = 'none';
             }
             if (!dom.settings.localModelInput.contains(event.target) && !dom.localModelHistory.contains(event.target)) {
                 dom.localModelHistory.style.display = 'none';
@@ -506,20 +523,23 @@ document.addEventListener('DOMContentLoaded', () => {
             updateLocalLlmStatus(data.local_model_present, data.cuda_available, data.local_model_ready);
             // Populate the input fields with current values from the server
             if (data.api_url) dom.settings.apiUrlInput.value = data.api_url;
+            if (data.api_model_name) dom.settings.apiModelInput.value = data.api_model_name;
             if (data.local_model_name) dom.settings.localModelInput.value = data.local_model_name;
             // Store values from the backend
             llmState.batchSet({
                 isReady: data.local_model_ready,
                 model: data.local_model_name,
                 defaultApiUrl: data.default_api_url,
+                defaultApiModel: data.api_model_name,
                 defaultLocalModel: data.default_local_model_name
             });
 
             // Update placeholders to show the *currently active* setting
             dom.settings.apiUrlInput.placeholder = `Current: ${data.api_url}`;
+            dom.settings.apiModelInput.placeholder = `Current: ${data.api_model_name}`;
             dom.settings.localModelInput.placeholder = `Current: ${data.local_model_name}`;
         });
-        // Listener for valid LLM models and API URLs, which get stored in the local cache
+        // Listener for valid LLM models, API Models and API URLs, which get stored in the local cache
         socket.on('setting_validated', (data) => {
             console.log('Received validation from backend:', data);
 
@@ -528,6 +548,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.value && data.value !== llmState.get('defaultApiUrl')) {
                     addToHistory('apiUrlHistory', data.value);
                     console.log(`Added valid API URL to history: ${data.value}`);
+                }
+            } else if (data.type === 'api_model') {
+                // Add the confirmed model to history if it's not the default.
+                if (data.value && data.value !== llmState.get('defaultApiModel')) {
+                    addToHistory('apiModelHistory', data.value);
+                    console.log(`Added valid API Model to history: ${data.value}`);
                 }
             } else if (data.type === 'local_model') {
                 // Add the confirmed model to history if it's not the default.
@@ -579,7 +605,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // The model is currently loading
             if (data.status === 'initializing' || data.status === 'model_downloading' || data.status === 'model_loading_from_cache') {
-                dom.localLlmStatus.modelStatusText.textContent = 'Loading';
+                dom.localLlmStatus.modelStatusText.textContent = 'Loading'; // TODO: when starting a worker, loading is not instantly applied
             }
 
             // The model is not yet ready, and the user has cancelled the summary: the button is disabled until a new model is set
