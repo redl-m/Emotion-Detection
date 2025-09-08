@@ -407,9 +407,51 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    socket.on("connect", () => {
-        console.log("Connected to server");
-    });
+
+    /**
+     * Adjusts the height of a textarea based on its content.
+     * @param {HTMLTextAreaElement} textarea - The textarea element to resize.
+     */
+    function resizeTextarea(textarea) {
+
+        textarea.style.height = 'auto';
+        textarea.style.height = textarea.scrollHeight + 'px';
+    }
+
+
+    /**
+     * Sets up auto-resizing for all relevant text areas in the settings panel.
+     */
+    function setupAutoResizeListeners() {
+
+        const textAreas = [
+            dom.settings.apiKeyInput,
+            dom.settings.apiUrlInput,
+            dom.settings.apiModelInput,
+            dom.settings.localModelInput
+        ];
+
+        // Set initial sizes
+        textAreas.forEach(textarea => {
+            if (textarea) {
+                textarea.addEventListener('input', () => resizeTextarea(textarea));
+                setTimeout(() => resizeTextarea(textarea), 1); // Initial resize
+            }
+        });
+    }
+
+
+    /**
+     * Populate a textarea input if data exists and resize it.
+     * @param {HTMLTextAreaElement} input - The textarea element.
+     * @param {string} value - The value to set, if present.
+     */
+    function populateAndResize(input, value) {
+        if (value && input) {
+            input.value = value;
+            resizeTextarea(input);
+        }
+    }
 
 
     /**
@@ -442,6 +484,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const url = dom.settings.apiUrlInput.value.trim();
             socket.emit('set_api_url', {url: url});
             dom.settings.apiUrlInput.value = ''; // Clear input field after setting
+            resizeTextarea(dom.settings.apiUrlInput);
             triggerTransition(dom.settings.setApiUrlBtn);
         });
 
@@ -449,6 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const model = dom.settings.apiModelInput.value.trim();
             socket.emit('set_api_model', {api_model: model});
             dom.settings.apiUrlInput.value = ''; // Clear input field after setting
+            resizeTextarea(dom.settings.apiModelInput);
             triggerTransition(dom.settings.setApiModelBtn);
         });
 
@@ -456,6 +500,7 @@ document.addEventListener('DOMContentLoaded', () => {
             llmState.set('model', dom.settings.localModelInput.value.trim());
             socket.emit('set_local_model', {model_name: llmState.get('model')});
             dom.settings.localModelInput.value = ''; // Clear input field after setting
+            resizeTextarea(dom.settings.localModelInput);
             triggerTransition(dom.settings.setLocalModelBtn);
         });
 
@@ -514,8 +559,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        setupAutoResizeListeners();
+
         // Socket listeners
 
+        socket.on("connect", () => {
+            console.log("Connected to server");
+        });
         socket.on('known_faces_update', onKnownFacesUpdate);
         socket.on('frame_data', onFrameData);
         socket.on('tracking_summary', renderSummary);
@@ -526,9 +576,10 @@ document.addEventListener('DOMContentLoaded', () => {
             updateApiStatus(data.api_key_present, data.api_url_present);
             updateLocalLlmStatus(data.local_model_present, data.cuda_available, data.local_model_ready);
             // Populate the input fields with current values from the server
-            if (data.api_url) dom.settings.apiUrlInput.value = data.api_url;
-            if (data.api_model_name) dom.settings.apiModelInput.value = data.api_model_name;
-            if (data.local_model_name) dom.settings.localModelInput.value = data.local_model_name;
+            populateAndResize(dom.settings.apiUrlInput, data.api_url);
+            populateAndResize(dom.settings.apiModelInput, data.api_model_name);
+            populateAndResize(dom.settings.localModelInput, data.local_model_name);
+
             // Store values from the backend
             llmState.batchSet({
                 isReady: data.local_model_ready,
@@ -1597,8 +1648,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Retrieves an array of history items from localStorage.
-     * @param {string} key The key for localStorage (e.g., 'apiUrlHistory').
-     * @returns {string[]} An array of history items.
+     * @param {string} key - The key for localStorage (e.g., 'apiUrlHistory').
+     * @returns {string[]} - An array of history items.
      */
     const getHistory = (key) => {
         return JSON.parse(localStorage.getItem(key)) || [];
@@ -1607,8 +1658,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Adds a new, unique item to the history in localStorage.
-     * @param {string} key The key for localStorage.
-     * @param {string} value The value to add.
+     * @param {string} key - The key for localStorage.
+     * @param {string} value - The value to add.
      */
     const addToHistory = (key, value) => {
 
@@ -1625,10 +1676,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Renders and displays the history dropdown for an input field.
-     * @param {HTMLElement} inputEl The input element.
-     * @param {HTMLElement} historyEl The container for the history dropdown.
-     * @param {string} storageKey The localStorage key.
-     * @param {string} defaultValue The default value from the backend.
+     * @param {HTMLElement} inputEl - The input element.
+     * @param {HTMLElement} historyEl - The container for the history dropdown.
+     * @param {string} storageKey - The localStorage key.
+     * @param {string} defaultValue - The default value from the backend.
      */
     const showHistory = (inputEl, historyEl, storageKey, defaultValue) => {
 
@@ -1642,6 +1693,7 @@ document.addEventListener('DOMContentLoaded', () => {
         defaultItem.onclick = () => {
             inputEl.value = defaultValue; // Set the default value
             historyEl.style.display = 'none';
+            inputEl.dispatchEvent(new Event('input'));
         };
         historyEl.appendChild(defaultItem);
 
@@ -1653,6 +1705,7 @@ document.addEventListener('DOMContentLoaded', () => {
             historyItem.onclick = () => {
                 inputEl.value = item;
                 historyEl.style.display = 'none';
+                inputEl.dispatchEvent(new Event('input'));
             };
             historyEl.appendChild(historyItem);
         });

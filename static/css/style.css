@@ -708,7 +708,9 @@ path.line-ts {
     gap: 0.5rem;
 }
 
-.settings-input-group input {
+/* Base styles for input and textarea */
+.settings-input-group input,
+.settings-input-group textarea {
     flex-grow: 1;
     background-color: var(--input-bg);
     border: 1px solid var(--border-color);
@@ -718,25 +720,24 @@ path.line-ts {
     font-size: 0.9rem;
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
 }
 
-.settings-input-group input::placeholder {
+.settings-input-group textarea {
+    resize: none;
+    overflow-y: hidden;
+    height: auto;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.settings-input-group textarea::placeholder {
     color: var(--text-muted);
 }
 
-.settings-input-group input:focus {
+.settings-input-group textarea:focus {
     border-color: var(--accent-color);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 25%, transparent);
-}
-
-.settings-input-group button {
-    padding: 0.5rem 1rem;
-    background-color: var(--button-bg);
-    color: var(--text-color);
-}
-
-.settings-input-group button:hover {
-    background-color: var(--button-hover-bg);
 }
 
 /* Progress Bar */
