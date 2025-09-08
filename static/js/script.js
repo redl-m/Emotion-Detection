@@ -623,7 +623,7 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('summary_status', (data) => {
             console.log('Received summary status:', data);
 
-            //Update the main status unless its a model_downloading update
+            // Update the main status unless its a model_downloading update
             if (data.status !== 'model_downloading') {
                 dom.llmComputation.statusText.textContent = data.message;
             }
@@ -661,6 +661,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // The model is currently loading
             if (data.status === 'initializing' || data.status === 'model_downloading' || data.status === 'model_loading_from_cache') {
                 dom.localLlmStatus.modelStatusText.textContent = 'Loading'; // TODO: when starting a worker, loading is not instantly applied
+
+                // Hide the old summary if a new one is being generated
+                if (state.lastState === 'success') {
+                    setTimeout(() => {
+                        dom.summaryContainer.classList.add('hidden');
+                    }, 3000);
+                }
             }
 
             // The model is not yet ready, and the user has cancelled the summary: the button is disabled until a new model is set
@@ -672,7 +679,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 setIndicatorStatus([dom.localLlmStatus.group, dom.localLlmStatus.modelStatusIndicator], 'status-not-present');
             }
 
-            // 3. Update the computation tile
+            // Update the computation tile
             updateLLMComputationStatusTile(tileConfig);
 
             state.lastState = data.status;
