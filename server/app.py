@@ -85,7 +85,11 @@ def create_app():
     emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral']
 
     def result_monitor():
-        """Monitors the result queue and emits results back to the client via SocketIO."""
+        """
+        Monitors the result queue for processing results and communicates with the client using SocketIO.
+
+        :raises Exception: Captures and logs any exceptions encountered during processing without halting the execution.
+        """
         print("INFO: Result queue monitor thread started.")
         while True:
             try:
@@ -156,11 +160,11 @@ def create_app():
                 print(f"Error in result monitor thread: {e}", file=sys.stderr)
             socketio.sleep(0.1)
 
-    # --- Worker Thread for Frame Processing ---
     def analysis_worker():
         """
-        Runs in a background thread, continuously processing the latest available frame.
-        :return:
+        Performs analysis on video frames in a separate worker thread.
+
+        :raises Exception: If an error occurs during the analysis of a frame.
         """
         global latest_frame_data
         print("INFO: Analysis worker thread started.")
@@ -189,13 +193,20 @@ def create_app():
     # --- SocketIO Event Handlers ---
     @app.route('/')
     def index():
+        """
+        Handles the routing for the root '/' endpoint.
+
+        :return: The rendered HTML content for the root endpoint.
+        :rtype: flask.Response
+        """
         return render_template('index.html')
 
-    # Helper function to gather and emit the current status of all settings
     def emit_status_update():
         """
-        Gathers all current statuses and emits them to the client.
-        :return:
+        Emits a status update of the current application state and configuration
+        to the frontend via a WebSocket.
+
+        :raises RuntimeError: If there's an issue with emitting the status to the WebSocket.
         """
         status = {
             "api_key_present": extensions.LLM_API_KEY is not None and extensions.LLM_API_KEY != "",
@@ -213,7 +224,11 @@ def create_app():
         socketio.emit('status_update', status)
 
     def _invalidate_remote_llm():
-        """Helper function to safely invalidate the remote LLM instance."""
+        """
+        Invalidates the global remote LLM instance.
+
+        :return: None
+        """
         global remote_llm
         with llm_lock:
             remote_llm = None
@@ -221,6 +236,13 @@ def create_app():
 
     @socketio.on('connect')
     def on_connect():
+        """
+        Handles the client connection event for a Socket.IO server and starts the analysis thread.
+
+        :raises AttributeError: If `app` object lacks `analysis_thread_started`
+            and is improperly configured.
+        :return: None
+        """
         if not hasattr(app, 'analysis_thread_started'):
             socketio.start_background_task(target=analysis_worker)
             app.analysis_thread_started = True
@@ -228,15 +250,25 @@ def create_app():
 
         emit_status_update()
 
-    # Handler for the client to request a status update at any time
     @socketio.on('get_status')
     def on_get_status():
+        """
+        Handles the socket event 'get_status' and triggers the emission of a status update to the connected client.
+
+        :return: None
+        """
         emit_status_update()
 
     # --- Settings Management Handlers ---
+
     @socketio.on('set_api_key')
     def on_set_api_key(data):
-        """Client is setting a new API key."""
+        """
+        Handles the event triggered when an API key is set or cleared by the user.
+
+        :param data: Data containing the 'key' to set or clear. The 'key' is expected
+            to be a string.
+        """
         new_key = data.get('key')
 
         if new_key and new_key.strip():
@@ -249,10 +281,17 @@ def create_app():
         _invalidate_remote_llm()
         emit_status_update()  # Send a full status update after changing the key
 
-    # Handler for setting the API URL
     @socketio.on('set_api_url')
     def on_set_api_url(data):
+        """
+        Handles the event when the API URL is set via the 'set_api_url' socket event.
 
+        :param data: Data containing the key 'url', which holds the URL string to
+                     be set as the new API endpoint. If the URL is not provided or empty,
+                     the function reverts to using the default API URL.
+        :type data: dict
+        :return: None
+        """
         global CURRENT_LLM_API_URL, remote_llm
         new_url = data.get('url', '').strip()
 
@@ -266,10 +305,15 @@ def create_app():
         _invalidate_remote_llm()  # Invalidate to force recreation
         emit_status_update()
 
-    # Handler for setting the API Model
     @socketio.on('set_api_model')
     def on_set_api_model(data):
+        """
+        Handles the 'set_api_model' socket event to update the global API model being used.
 
+        :param data: Data received from the socket event, expected to contain a key 'api_model'
+                     representing the model to set
+        :type data: dict
+        """
         global CURRENT_LLM_API_MODEL, remote_llm
         new_model = data.get('api_model', '').strip()
 
@@ -285,6 +329,15 @@ def create_app():
 
     @socketio.on('set_local_model')
     def on_set_local_model(data):
+        """
+        Handles the 'set_local_model' socket event to update and initiate the local LLM model.
+
+        If still alive, shuts down the existing worker process gracefully or terminates on fallback,
+        also clearing communication queues.
+
+        :param data: Data containing configuration such as the 'model_name' for the
+                     new local LLM model.
+        """
         global llm_process, CURRENT_LOCAL_LLM_MODEL_NAME
 
         with llm_process_lock:
@@ -333,11 +386,20 @@ def create_app():
 
         emit_status_update()
 
-    # Listener that runs in the main process using IPC
     def queue_listener(queue):
         """
-        Listens to the result queue and emits socketio messages.
-        This runs in a background THREAD in the main process.
+        Listens for messages from the queue and processes them based on their message type.
+
+        Depending on the type of message, different types of events are emitted to the
+        frontend.
+
+        :param queue: The queue object to listen to. It is expected to provide
+            messages in the form of dictionaries with a 'type' key and other
+            relevant data.
+        :type queue: queue.Queue
+        :return: This function does not return any value. It runs indefinitely and
+            processes messages from the queue.
+        :rtype: None
         """
         global pending_summary_task
 
@@ -379,7 +441,10 @@ def create_app():
 
     def _execute_local_summary():
         """
-        Contains the core logic for generating a summary with a local LLM.
+        Executes the local summary generation by sending tasks to the LLM worker process.
+
+        :return: None
+        :raises RuntimeError: Indicates issues with the local summary execution.
         """
         with llm_process_lock:
             if not llm_process or not llm_process.is_alive():
@@ -416,22 +481,61 @@ def create_app():
 
     @socketio.on('client_ready')
     def on_client_ready():
+        """
+        Handles the 'client_ready' event emitted by the client.
+
+        :raises: No specific exceptions are raised by this function.
+        :return: None
+        """
         emit('known_faces_update', tracker.known_face_metadata)
 
     @socketio.on('start_tracking')
     def on_start_tracking():
+        """
+        Handles the 'start_tracking' event received from Socket.IO, initiating a
+        new tracking session. When this event is triggered, prior tracking data
+        is cleared and a new clip recording starts.
+
+        :raises RuntimeError: If the event fails to initialize due to Socket.IO
+                              communication issues.
+
+        :return: None
+        """
         nonlocal tracking_data
         tracking_data.clear()
         print("INFO: New clip started. Emotion tracking data cleared.")
 
     @socketio.on('rename_person')
     def on_rename_person(data):
+        """
+        Handles the 'rename_person' event, allowing for updating the name of a person in the
+        tracker's known face metadata. Emits an updated list of known faces to all connected
+        clients upon successful renaming.
+
+        :param data: Data containing the "id" and "name" keys.
+            - "id": The identifier of the person whose name is to be updated.
+            - "name": The new name to be assigned to the person.
+        :type data: dict
+
+        :return: None
+        """
         person_id, new_name = data.get('id'), data.get('name')
         if person_id is not None and new_name and tracker.rename_person(int(person_id), new_name):
             emit('known_faces_update', tracker.known_face_metadata, broadcast=True)
 
     @socketio.on('merge_persons')
     def on_merge_persons(data):
+        """
+        Handles the 'merge_persons' event received from the frontend.
+
+        :param data: Data containing the following:
+            - 'source_ids' (list of str): List of source person identifiers to be
+              merged into the target identifier.
+            - 'target_id' (str): The target person identifier into which sources
+              will be merged.
+            - 'name' (str): The new name to be assigned to the merged identifier.
+        :return: None
+        """
         # The frontend sends a list of sources, a single target, and the final name
         source_ids = [int(sid) for sid in data['source_ids']]
         target_id = int(data['target_id'])
@@ -446,6 +550,17 @@ def create_app():
 
     @socketio.on('frame')
     def on_frame(payload):
+        """
+        Handles the incoming 'frame' event on the socket. This function processes the
+        incoming frame data, decodes it from base64 format, and updates the globally
+        shared `latest_frame_data` with the decoded image and associated head pose
+        data.
+
+        :param payload: Data containing the data for the frame. It is expected
+            to have a "data_url" key with the base64-encoded image data and
+            optionally a "head_pose" key for additional associated information.
+        :type payload: dict
+        """
         global latest_frame_data
         try:
             image_data = base64.b64decode(payload['data_url'].split(',', 1)[1])
@@ -458,8 +573,16 @@ def create_app():
     @socketio.on('get_summary')
     def on_get_summary(data):
         """
-        Handles the client's request to generate a summary.
-        Delegates the task based on the selected mode.
+        Handles a request for generating a summary and emits appropriate events
+        based on the process's outcome. This function enables both local processing
+        and remote API-based summary generation.
+
+        :param data: Data containing fields such as "use_llm"
+            to control the mode of operation. The "use_llm" field determines the
+            method for summary generation:
+            - 0: Use heuristic methods.
+            - 1: Use local LLM via multiprocessing.
+            - 2: Use remote LLM API via threading.
         """
         use_llm_mode = int(data.get("use_llm", 0))
 
@@ -470,6 +593,16 @@ def create_app():
         # --- Modes 0 & 2: Heuristic and Remote API via Threading ---
         else:
             def threaded_summary_worker():
+                """
+                Executes a threaded worker function to generate a textual summary of
+                tracking data. Depending on the mode, it may utilize a remote
+                large language model through an API for summary generation.
+
+                :raises ValueError: If the LLM API key is not set.
+                :raises Exception: For any unexpected error during summary generation.
+
+                :return: None
+                """
                 try:
                     active_llm = None
                     if use_llm_mode == 2:
@@ -512,6 +645,15 @@ def create_app():
 
     @socketio.on('cancel_summary')
     def on_cancel_summary():
+        """
+        Handles the 'cancel_summary' event triggered by the client.
+
+        This function manages the cancellation of the LLM worker process if it is
+        currently active.
+
+        :raises RuntimeError: If there is an issue during the termination of the
+                              LLM process.
+        """
         with llm_process_lock:
             if llm_process and llm_process.is_alive():
                 print(f"INFO: User requested cancellation. Terminating LLM worker process (PID: {llm_process.pid}).")
@@ -527,7 +669,13 @@ def create_app():
     @socketio.on('restart_and_summarize')
     def on_restart_and_summarize(data):
         """
-        Handles a request to generate a summary, reloading the local model only if necessary.
+        Handles the 'restart_and_summarize' socket event from the client.
+
+        Depending on the current program state and mode selection,
+        this function either forwards the data for remote or heuristic summary or handles a local LLM process.
+
+        :param data: Data containing the event data sent by the client.
+        :return: None
         """
         global pending_summary_task
         use_llm_mode = int(data.get("use_llm", 0))
@@ -550,7 +698,7 @@ def create_app():
             if llm_process and llm_process.is_alive() and APP_STATE.get("local_model_loading"):
                 print("INFO: LLM model is currently loading. Queuing summary task to run upon completion.")
                 with pending_summary_lock:
-                    pending_summary_task = {"use_llm": use_llm_mode} # Queue the task
+                    pending_summary_task = {"use_llm": use_llm_mode}  # Queue the task
                 socketio.emit('summary_status', {'status': 'initializing',
                                                  'message': 'Model is already loading, summary will start when ready.'})
                 return
