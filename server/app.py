@@ -296,18 +296,27 @@ def create_app():
             APP_STATE["local_model_ready"] = False
             emit_status_update()
 
-            # Terminate the old process if it exists
+            # Shutdown of existing LLM process
             if llm_process and llm_process.is_alive():
-                print(f"INFO: Terminating old LLM worker process (PID: {llm_process.pid}).")
-                llm_process.terminate()
-                llm_process.join(timeout=5)  # Wait a bit for it to clean up
-                if llm_process.is_alive():
-                    print(f"WARNING: Process {llm_process.pid} did not terminate gracefully. Killing.")
-                    llm_process.kill()  # Force kill if terminate fails
+                print(f"INFO: Sending shutdown signal to old LLM worker process PID {llm_process.pid}.")
+                try:
+                    task_queue.put(None)  # Exit the loop
+                    llm_process.join(timeout=10)
+                except Exception as e:
+                    print(f"ERROR during graceful shutdown: {e}", file=sys.stderr)
 
-                # Drain the queues to prevent old tasks/results from interfering
-                while not task_queue.empty(): task_queue.get_nowait()
-                while not result_queue.empty(): result_queue.get_nowait()
+                # Forceful termination as a fallback
+                if llm_process.is_alive():
+                    print(f"WARNING: Process {llm_process.pid} did not shut down gracefully. Terminating.")
+                    llm_process.terminate()
+                    llm_process.join(timeout=5)
+                else:
+                    print("INFO: LLM worker process shut down correctly.")
+
+            # Drain queues after shutdown to clear any leftover messages
+            while not task_queue.empty(): task_queue.get_nowait()
+            while not result_queue.empty(): result_queue.get_nowait()
+            while not status_queue.empty(): status_queue.get_nowait()
 
             CURRENT_LOCAL_LLM_MODEL_NAME = new_model_name
             print(f"INFO: Starting new LLM worker process for model: {new_model_name}")
@@ -322,8 +331,6 @@ def create_app():
             )
             llm_process.start()
 
-        socketio.start_background_task(target=queue_listener, queue=status_queue)
-        socketio.start_background_task(target=result_monitor)
         emit_status_update()
 
     # Listener that runs in the main process using IPC
@@ -558,6 +565,10 @@ def create_app():
     if not hasattr(app, 'result_monitor_started'):
         socketio.start_background_task(target=result_monitor)
         app.result_monitor_started = True
+    if not hasattr(app, 'queue_listener_started'):
+        print("INFO: Starting status queue listener thread.")
+        socketio.start_background_task(target=queue_listener, queue=status_queue)
+        app.queue_listener_started = True
 
     return socketio, app
 
