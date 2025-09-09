@@ -22,8 +22,23 @@ from server.extensions import DEFAULT_LOCAL_LLM_MODEL_NAME, APP_STATE
 
 def llm_process_worker(task_queue, result_queue, status_queue, model_name):
     """
-    This function runs in a separate process. It initializes a LocalLLM
-    and then enters a loop, waiting for tasks and putting results back.
+    Executes as a worker process. Processes data asynchronously and returns results via a result
+    queue.
+
+    :param task_queue: Queue that provides task data for the worker to process.
+    :type task_queue: multiprocessing.Queue
+
+    :param result_queue: Queue used to send the generation results or errors back to the main process.
+    :type result_queue: multiprocessing.Queue
+
+    :param status_queue: Queue used for reporting the current status or updates. Primarily used to
+        communicate task progress or issue updates.
+    :type status_queue: multiprocessing.Queue
+
+    :param model_name: Name of the language model to load and use for text generation tasks.
+    :type model_name: str
+
+    :return: None
     """
     try:
         print(f"[Worker-{os.getpid()}] Starting to load model: {model_name}")
@@ -32,7 +47,6 @@ def llm_process_worker(task_queue, result_queue, status_queue, model_name):
 
         while True:
             task_data = task_queue.get()
-            print(f"DEBUG: [Worker-{os.getpid()}] Current task data: {task_data}")
             if task_data is None:
                 break
 
@@ -66,14 +80,32 @@ def llm_process_worker(task_queue, result_queue, status_queue, model_name):
 
 class FaceReIDTracker:
     """
-    Tracks, re-identifies, and manages faces using the 'face_recognition' library.
+    Tracks multiple faces, assigns unique IDs to individuals, and manages metadata for
+    person tracking. Provides functionality to rename individuals, merge identities,
+    and update tracked information from image frames.
+
+    :ivar known_face_encodings: List of face encoding vectors for known persons.
+    :type known_face_encodings: list
+    :ivar known_face_metadata: List of metadata for known persons, including unique
+                               identifiers and display names.
+    :type known_face_metadata: list
+    :ivar next_person_id: Counter for generating unique IDs for new persons.
+    :type next_person_id: int
+    :ivar tolerance: Maximum distance for a face encoding to be considered a match.
+    :type tolerance: float
     """
 
     def __init__(self, tolerance=0.55):
         """
+        Represents a face recognition system with metadata storage and adjustable tolerance
+        settings.
 
-        :param tolerance: Maximum distance for a face encoding to be considered a match.
-        Lower values make recognition stricter. Default is 0.55.
+        This class is initialized with a tolerance value that determines the threshold for
+        matching faces by similarity. It also maintains an internal database of known face
+        encodings and their corresponding metadata.
+
+        :param tolerance: The threshold value for determining similarity between faces.
+        :type tolerance: float
         """
         self.known_face_encodings = []
         self.known_face_metadata = []
@@ -83,6 +115,7 @@ class FaceReIDTracker:
     def rename_person(self, person_id, new_name):
         """
         Rename a tracked person by updating their metadata.
+
         :param person_id: Unique identifier of the person to rename.
         :param new_name: New display name to assign.
         :return: bool: True if the person was found and renamed, otherwise False.
@@ -98,6 +131,7 @@ class FaceReIDTracker:
         """
         Merges multiple source persons into a target person and updates their name.
         Also handles the external tracking_data dictionary.
+
         :param source_ids: IDs of the persons to merge into the target.
         :param target_id: ID of the person to retain as the merged identity.
         :param new_name: New name to assign to the merged identity.
@@ -142,6 +176,7 @@ class FaceReIDTracker:
         - Compares detected face encodings against known identities.
         - Assigns existing IDs if a match is found.
         - Creates a new identity when an unknown face is detected.
+
         :param rgb_frame: Image frame in RGB format.
         :return: Mapping of tracked person IDs to dictionaries with bounding box
                  of the face and display name of the tracked person.
@@ -174,11 +209,31 @@ class FaceReIDTracker:
 
 class TqdmProgressCapturer(io.TextIOBase):
     """
-    A file-like object that captures stdout/stderr, buffers the output,
-    parses tqdm progress, and sends throttled updates to a queue.
+    A class to capture and monitor the progress output from a tqdm progress
+    bar, forwarding the progress information to a status queue, while
+    maintaining functionality as a text-based IO stream.
+
+    :ivar status_queue: Queue used to send progress updates for other
+        components or monitoring systems.
+    :type status_queue: Queue
+    :ivar file_info: Object containing metadata about the file that is
+        being downloaded.
+    :type file_info: Any
+    :ivar original_stream: The original stream (e.g., sys.stdout, sys.stderr)
+        where progress output is forwarded.
+    :type original_stream: io.TextIOBase
     """
 
     def __init__(self, status_queue, file_info, original_stream):
+        """
+        Initialize the TqdmProgressCapturer with a status queue, file metadata,
+        and an original output stream.
+
+        :param status_queue: Queue used to send progress updates.
+        :param file_info: Metadata object describing the file being downloaded.
+        :param original_stream: Stream (e.g., sys.stdout or sys.stderr) where
+            output is forwarded.
+        """
         self.status_queue = status_queue
         self.file_info = file_info
         self.original_stream = original_stream  # sys.stdout or sys.stderr
@@ -187,6 +242,13 @@ class TqdmProgressCapturer(io.TextIOBase):
         self.percent_regex = re.compile(r"(\d+)%\|")
 
     def write(self, s):
+        """
+        Write a string to the original stream, capture tqdm output, and forward
+        progress percentage updates to the status queue.
+
+        :param s: String to write.
+        :return: Number of characters written.
+        """
         # Write to the actual console first
         self.original_stream.write(s)
         self.original_stream.flush()
@@ -218,27 +280,68 @@ class TqdmProgressCapturer(io.TextIOBase):
 
         return len(s)
 
-    # Methods for Robustness
     def flush(self):
+        """
+        Flush the original output stream to ensure all buffered data is written.
+
+        :return: None
+        """
         self.original_stream.flush()
 
     def isatty(self):
+        """
+        Return True if the original stream is interactive (a TTY).
+
+        :return: True if the original stream is connected to a terminal device,
+         False otherwise
+        :rtype: bool
+        """
         return self.original_stream.isatty()
 
     def fileno(self):
+        """
+        Return the file descriptor number of the original stream.
+
+        :return: The file descriptor associated with the underlying stream.
+        :rtype: int
+        """
         return self.original_stream.fileno()
 
     @property
     def encoding(self):
+        """
+        Return the encoding used by the original stream.
+
+        :return: Encoding format of the underlying original stream
+        :rtype: str
+        """
         return self.original_stream.encoding
 
 
 class ProgressRedirector:
     """
-    A context manager to safely redirect BOTH stdout and stderr to our capturer.
+    Redirects stdout and stderr to custom capturers for tracking the progress
+    of file-related operations.
+
+    This class is designed to temporarily replace the `sys.stdout` and
+    `sys.stderr` streams with custom capturing streams, allowing the progress
+    of file-related operations to be sent to a queue for monitoring purposes.
+
+    :ivar status_queue: A queue used to send progress updates for file operations.
+    :type status_queue: Queue
+    :ivar file_info: Metadata object containing information about the file being
+        processed.
+    :type file_info: object
     """
 
     def __init__(self, status_queue, file_info):
+        """
+        Initialize the ProgressRedirector with a status queue and file metadata,
+        preparing capturers for both stdout and stderr.
+
+        :param status_queue: Queue used to send progress updates.
+        :param file_info: Metadata object describing the file being downloaded.
+        """
         self.status_queue = status_queue
         self.file_info = file_info
         self.original_stdout = sys.stdout
@@ -247,12 +350,27 @@ class ProgressRedirector:
         self.stderr_capturer = TqdmProgressCapturer(status_queue, file_info, self.original_stderr)
 
     def __enter__(self):
+        """
+        Enter the context manager, redirecting both stdout and stderr
+        to TqdmProgressCapturer instances.
+
+        :return: Self (the ProgressRedirector instance).
+        """
         # Redirect both streams
         sys.stdout = self.stdout_capturer
         sys.stderr = self.stderr_capturer
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Exit the context manager, restoring the original stdout and stderr
+        streams regardless of whether an exception occurred.
+
+        :param exc_type: Exception type if raised, otherwise None.
+        :param exc_val: Exception instance if raised, otherwise None.
+        :param exc_tb: Traceback if an exception occurred, otherwise None.
+        :return: `False` if the exception should propagate, `None` otherwise.
+        """
         # Restore the original streams
         sys.stdout = self.original_stdout
         sys.stderr = self.original_stderr
@@ -261,11 +379,31 @@ class ProgressRedirector:
 # ---------------- REMOTE LLM (API-BASED) SETUP ----------------
 class RemoteLLM:
     """
-    Wrapper for a remote LLM API endpoint.
+    Handles interactions with a remote LLM via an API.
+
+    :ivar api_key: The API key used for authenticating requests to the remote LLM API.
+    :type api_key: str
+    :ivar api_url: The base URL for the remote LLM API.
+    :type api_url: str
+    :ivar model: The specific LLM model to use for generating narratives.
+    :type model: str
+    :ivar headers: HTTP headers sent with each API request, including authorization.
+    :type headers: dict
     """
 
     def __init__(self, api_key, api_url,
                  model):
+        """
+        Initializes the RemoteLLM class.
+
+        :param api_key: The API key used for authenticating requests
+        :type: str
+        :param api_url: The base URL of the API endpoint
+        :type: str
+        :param model: The name or identifier of the model to be used
+        :type: str
+        :raises ValueError: If the "api_key" is not provided
+        """
         if not api_key:
             raise ValueError("API key is required for RemoteLLM.")
         self.api_key = api_key
@@ -319,7 +457,26 @@ class RemoteLLM:
 
 # ---------------- LOCAL LLM SETUP ----------------
 class LocalLLM:
-    """Local LLM wrapper with optional 4-bit quantization (bitsandbytes)."""
+    """
+    Represents a local LLM for natural language generation tasks.
+
+    Provides an interface to load, manage, and generate outputs using a local
+    pre-trained language model.
+
+    :ivar model_name: Name of the language model to be loaded.
+    :type model_name: str
+    :ivar status_queue: Queue for reporting the loading or processing status to an external system.
+    :type status_queue: queue.Queue
+    :ivar device: Device used for performing computations (e.g., 'cpu', 'cuda').
+    :type device: str
+    :ivar tokenizer: The tokenizer associated with the loaded language model, responsible for text encoding and decoding.
+    :type tokenizer: AutoTokenizer
+    :ivar model: The pre-trained causal language model loaded for use.
+    :type model: AutoModelForCausalLM
+    :ivar generation_defaults: Default configuration parameters for text generation,
+        including token limits, sampling settings, and cache usage.
+    :type generation_defaults: dict
+    """
 
     def __init__(
             self,
@@ -329,8 +486,18 @@ class LocalLLM:
             quantize_4bit=True,
             trust_remote_code=False,  # TODO: might need to be enabled for certain models, make user interface button?
     ):
+        """
+        Initialize the LocalLLM, setting up tokenizer, model configuration,
+        device assignment, and status reporting.
 
-        APP_STATE["local_model_ready"] = False # default value of shared boolean
+        :param model_name: Name of the local Hugging Face model to load.
+        :param status_queue: Queue used to send status updates to external systems.
+        :param device: Device for model execution ('cpu' or 'cuda'). Defaults to auto-detect.
+        :param quantize_4bit: Whether to apply 4-bit quantization when using CUDA.
+        :param trust_remote_code: Whether to trust custom model code from Hugging Face repositories.
+        """
+
+        APP_STATE["local_model_ready"] = False  # default value of shared boolean
         print("INFO: Set local_model_ready state to False.")
 
         self.model_name = model_name
@@ -375,7 +542,8 @@ class LocalLLM:
                 print(f"INFO: Loading '{model_name}' from cache.")
                 self.status_queue.put({
                     'type': 'status',
-                    'payload': {'status': 'model_loading_from_cache', 'message': f'Loading {self.model_name} from cache.'}
+                    'payload': {'status': 'model_loading_from_cache',
+                                'message': f'Loading {self.model_name} from cache.'}
                 })
             else:
                 print(f"INFO: Downloading '{model_name}'. This might take a while.")
@@ -430,10 +598,12 @@ class LocalLLM:
 
     def generate_narrative(self, prompt, stopping_criteria=None, **gen_overrides):
         """
-        :param prompt:
-        :param stopping_criteria: A list of StoppingCriteria to halt generation.
-        :param gen_overrides:
-        :return:
+        Generate a text continuation based on the given prompt using the local LLM.
+
+        :param prompt: Input text to condition generation on.
+        :param stopping_criteria: Optional list of stopping rules for halting generation.
+        :param gen_overrides: Additional generation parameters that override defaults.
+        :return: Generated narrative as a string.
         """
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
         gen_cfg = {**self.generation_defaults, **gen_overrides}
@@ -448,10 +618,15 @@ class LocalLLM:
         gen_tokens = output_ids[0, inputs["input_ids"].shape[-1]:]
         text = self.tokenizer.decode(gen_tokens, skip_special_tokens=True)
         print("INFO: Narrative generated successfully.")
-        # print("DEBUG: Local LLM's answer: " + text)
+
         return text.strip()
 
     def is_model_cached(self):
+        """
+        Check if the model files are already available in the local Hugging Face cache.
+
+        :return: True if the model exists locally, False otherwise.
+        """
         try:
             # Try resolving config.json locally
             hf_hub_download(
@@ -465,8 +640,14 @@ class LocalLLM:
 
     def download_with_progress(self):
         """
-        Manually downloads all files, capturing console output to report progress
-        for older versions of the huggingface_hub library.
+        Download model files from the Hugging Face Hub with per-file progress
+        reporting redirected through ProgressRedirector and the status queue.
+
+        Reports each file's start, progress, and completion, handling errors
+        gracefully while ensuring stdout/stderr are restored.
+
+        :raises:
+            Exception: If any exception occurs during the download process.
         """
         try:
             api = HfApi()
@@ -476,11 +657,11 @@ class LocalLLM:
             # Can't easily do overall progress with this method, so we focus on per-file
             print(f"INFO: Starting download of {len(repo_files)} files.")
             self.status_queue.put({
-            'type': 'status',
-            'payload': {
-                'status': 'model_downloading',
-                'message': f'Starting download of {len(repo_files)} files.'
-            }
+                'type': 'status',
+                'payload': {
+                    'status': 'model_downloading',
+                    'message': f'Starting download of {len(repo_files)} files.'
+                }
             })
 
             # Loop through each file and download it inside our progress redirector
@@ -565,7 +746,7 @@ def generate_ai_narrative_summary(person_name, emotions_sequence, emotion_labels
             f"You must not quote the raw sequence itself, but summarize the overall trend.\n"
             f"Summary:"
         )
-        # print("DEBUG: Prompt for LLM:\n\t" + prompt)
+
         return llm.generate_narrative(prompt, max_new_tokens=100, temperature=0.2, top_p=0.9)
 
     # ---------- Heuristic fallback ----------
