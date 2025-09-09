@@ -385,14 +385,14 @@ class RemoteLLM:
     :type api_key: str
     :ivar api_url: The base URL for the remote LLM API.
     :type api_url: str
-    :ivar model: The specific LLM model to use for generating narratives.
-    :type model: str
+    :ivar model_name: The specific LLM model to use for generating narratives.
+    :type model_name: str
     :ivar headers: HTTP headers sent with each API request, including authorization.
     :type headers: dict
     """
 
     def __init__(self, api_key, api_url,
-                 model):
+                 model_name):
         """
         Initializes the RemoteLLM class.
 
@@ -400,7 +400,7 @@ class RemoteLLM:
         :type: str
         :param api_url: The base URL of the API endpoint
         :type: str
-        :param model: The name or identifier of the model to be used
+        :param model_name: The name or identifier of the model to be used
         :type: str
         :raises ValueError: If the "api_key" is not provided
         """
@@ -408,7 +408,7 @@ class RemoteLLM:
             raise ValueError("API key is required for RemoteLLM.")
         self.api_key = api_key
         self.api_url = api_url
-        self.model = model
+        self.model_name = model_name
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -423,10 +423,10 @@ class RemoteLLM:
                               (e.g., max_new_tokens, temperature, top_p).
         :return: A generated narrative string with special tokens removed.
         """
-        print(f"INFO: Calling remote LLM API: {self.model}.")
+        print(f"INFO: Calling remote LLM API: {self.model_name}.")
 
         payload = {
-            "model": self.model,
+            "model": self.model_name,
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant providing concise summaries."},
                 {"role": "user", "content": prompt}

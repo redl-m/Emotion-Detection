@@ -10,6 +10,10 @@ import torch
 import threading
 import multiprocessing as mp
 
+# --- Path Setup ---
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+
 # --- Local Imports ---
 from model.model import EmotionCNN
 from server.analysis import FaceReIDTracker, RemoteLLM, analyze_frame, llm_process_worker, generate_summary_payload, \
@@ -17,10 +21,6 @@ from server.analysis import FaceReIDTracker, RemoteLLM, analyze_frame, llm_proce
 import server.extensions as extensions
 from server.extensions import socketio, app, APP_STATE, DEFAULT_LLM_API_URL, DEFAULT_LLM_API_MODEL, \
     DEFAULT_LOCAL_LLM_MODEL_NAME
-
-# --- Path Setup ---
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
 
 # --- Global State for the Worker Thread ---
 frame_lock = threading.Lock()
@@ -614,7 +614,7 @@ def create_app():
                                 socketio.emit('summary_status',
                                               {'status': 'calling_api', 'message': 'Initializing remote LLM client...'})
                                 remote_llm = RemoteLLM(api_key=extensions.LLM_API_KEY, api_url=CURRENT_LLM_API_URL,
-                                                       model=CURRENT_LLM_API_MODEL)
+                                                       model_name=CURRENT_LLM_API_MODEL)
                                 print("INFO: Remote LLM client is ready.")
                                 socketio.emit('setting_validated',
                                               {'type': 'api_model', 'value': CURRENT_LLM_API_MODEL})
