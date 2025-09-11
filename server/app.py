@@ -211,6 +211,7 @@ def create_app():
         status = {
             "api_key_present": extensions.LLM_API_KEY is not None and extensions.LLM_API_KEY != "",
             "api_url_present": CURRENT_LLM_API_URL is not None and CURRENT_LLM_API_URL != "",
+            "api_model_present": CURRENT_LLM_API_MODEL is not None and CURRENT_LLM_API_MODEL != "",
             "local_model_present": CURRENT_LOCAL_LLM_MODEL_NAME is not None and CURRENT_LOCAL_LLM_MODEL_NAME != "",
             "cuda_available": torch.cuda.is_available(),
             "api_url": CURRENT_LLM_API_URL,
