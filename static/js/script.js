@@ -60,7 +60,9 @@ document.addEventListener('DOMContentLoaded', () => {
             keyText: document.getElementById('apiKeyStatusText'),
             keyIndicator: document.getElementById('apiKeyStatusIndicator'),
             urlText: document.getElementById('apiUrlStatusText'),
-            urlIndicator: document.getElementById('apiUrlStatusIndicator')
+            urlIndicator: document.getElementById('apiUrlStatusIndicator'),
+            modelText: document.getElementById('apiModelStatusText'),
+            modelIndicator: document.getElementById('apiModelStatusIndicator'),
         },
 
         // Local LLM Status
@@ -87,6 +89,14 @@ document.addEventListener('DOMContentLoaded', () => {
             setApiModelBtn: document.getElementById('setApiModelBtn'),
             localModelInput: document.getElementById('localModelInput'),
             setLocalModelBtn: document.getElementById('setLocalModelBtn')
+        },
+
+        // Settings tiles
+        settingsTiles: {
+            localModel: document.getElementById('localModelSettingsTile'),
+            apiKey: document.getElementById('apiKeySettingsTile'),
+            apiUrl: document.getElementById('apiUrlSettingsTile'),
+            apiModel: document.getElementById('apiModelSettingsTile')
         }
     };
 
@@ -125,7 +135,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const llmState = {
 
         _state: {
-            isReady: false,
+            isLocalLlmReady: false,
+            isApiLlmReady: false,
             mode: 0, // 0: Heuristic, 1: Local LLM, 2: API LLM
             model: '',
             defaultApiUrl: '',
@@ -135,7 +146,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Listeners stored per-key for efficiency.
         _listeners: {
-            isReady: [],
+            isLocalLlmReady: [],
+            isApiLlmReady: [],
             mode: [],
             model: [],
             defaultApiUrl: [],
@@ -206,10 +218,10 @@ document.addEventListener('DOMContentLoaded', () => {
          * @param {Function} callback The function to execute when ready.
          */
         onReady(callback) {
-            if (this.get('isReady')) {
+            if (this.get('isLocalLlmReady')) {
                 callback();
             } else {
-                const unsubscribe = this.onChange('isReady', (newValue) => {
+                const unsubscribe = this.onChange('isLocalLlmReady', (newValue) => {
                     if (newValue === true) {
                         callback();
                         unsubscribe(); // Unsubscribe so it only runs once!
@@ -573,8 +585,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Listener for the unified status update from the backend
         socket.on('status_update', (data) => {
             console.log('Received status update:', data);
-            updateApiStatus(data.api_key_present, data.api_url_present);
-            updateLocalLlmStatus(data.local_model_present, data.cuda_available, data.local_model_ready);
+
             // Populate the input fields with current values from the server
             populateAndResize(dom.settings.apiUrlInput, data.api_url);
             populateAndResize(dom.settings.apiModelInput, data.api_model_name);
@@ -582,12 +593,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Store values from the backend
             llmState.batchSet({
-                isReady: data.local_model_ready,
+                isLocalLlmReady: data.local_model_ready,
+                isApiLlmReady: data.api_key_present && data.api_url_present && data.api_model_present,
                 model: data.local_model_name,
                 defaultApiUrl: data.default_api_url,
                 defaultApiModel: data.api_model_name,
                 defaultLocalModel: data.default_local_model_name
             });
+
+            updateApiStatus(data.api_key_present, data.api_url_present, data.api_model_present);
+            updateLocalLlmStatus(data.local_model_present, data.local_model_ready, data.cuda_available);
 
             // Update placeholders to show the *currently active* setting
             dom.settings.apiUrlInput.placeholder = `Current: ${data.api_url}`;
@@ -689,6 +704,12 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('model_downloading', (data) => {
             progressBarManager.update(data.percent_file, data.message);
         });
+
+        // LLM State Listeners
+
+        llmState.onChange('mode', updateTrackButtonState);
+        llmState.onChange('isLocalLlmReady', updateTrackButtonState);
+        llmState.onChange('isApiLlmReady', updateTrackButtonState);
     }
 
     // ---------------------------------------------------
@@ -876,7 +897,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const mode = llmState.get('mode');
 
             // If the model is not ready and the selected method is local LLM, first load the model before summarizing
-            if (!llmState.get('isReady') && mode === 1) {
+            if (!llmState.get('isLocalLlmReady') && mode === 1) {
                 socket.emit('restart_and_summarize', {
                     model_name: llmState.get('model'),
                     use_llm: llmState.get('mode')
@@ -886,6 +907,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 socket.emit('get_summary', {use_llm: llmState.get('mode')});
             }
         }
+
+        updateTrackButtonState();
     }
 
 
@@ -1324,9 +1347,46 @@ document.addEventListener('DOMContentLoaded', () => {
      * Sets up the summary method slider.
      */
     setupSummaryMethodSlider(newMode => {
-        console.log("Summary mode changed to:", newMode);
         llmState.set('mode', newMode);
+        updateSettingsVisibility(newMode);
     });
+
+
+    /**
+     * Updates the visibility of settings tiles based on the selected summary mode.
+     * @param {number} mode - The summary mode (0: Heuristic, 1: Local, 2: Remote).
+     */
+    function updateSettingsVisibility(mode) {
+        const {localModel, apiKey, apiUrl, apiModel} = dom.settingsTiles;
+
+        const textAreas = [
+            dom.settings.apiKeyInput,
+            dom.settings.apiUrlInput,
+            dom.settings.apiModelInput,
+            dom.settings.localModelInput
+        ];
+
+        // Default to hiding all tiles
+        localModel.style.display = 'none';
+        apiKey.style.display = 'none';
+        apiUrl.style.display = 'none';
+        apiModel.style.display = 'none';
+
+        if (mode === 1) { // Local LLM
+            localModel.style.display = 'block';
+        } else if (mode === 2) { // Remote/API LLM
+            apiKey.style.display = 'block';
+            apiUrl.style.display = 'block';
+            apiModel.style.display = 'block';
+        }
+
+        // Resize text areas
+        textAreas.forEach(textArea => {
+            if (textArea) {
+                resizeTextarea(textArea);
+            }
+        })
+    }
 
 
     /**
@@ -1587,15 +1647,18 @@ document.addEventListener('DOMContentLoaded', () => {
      *
      * @param {boolean} keyPresent - Whether an API key is available.
      * @param {boolean} urlPresent - Whether an API URL is set.
+     * @param {boolean} modelPresent - Whether an API model is set.
      */
-    function updateApiStatus(keyPresent, urlPresent) {
+    function updateApiStatus(keyPresent, urlPresent, modelPresent) {
 
+        // Update text and indicator stati
         updateTileStatus(dom.apiStatus.keyText, dom.apiStatus.keyIndicator, keyPresent);
         updateTileStatus(dom.apiStatus.urlText, dom.apiStatus.urlIndicator, urlPresent);
-        const isApiReady = keyPresent && urlPresent;
-        setSummaryOptionEnabled(2, isApiReady);
+        updateTileStatus(dom.apiStatus.modelText, dom.apiStatus.modelIndicator, modelPresent);
+
+        // Update group indicator
         dom.apiStatus.group.classList.remove('status-present', 'status-not-present');
-        dom.apiStatus.group.classList.add(isApiReady ? 'status-present' : 'status-not-present');
+        dom.apiStatus.group.classList.add(llmState.get('isApiLlmReady') ? 'status-present' : 'status-not-present');
     }
 
 
@@ -1604,19 +1667,22 @@ document.addEventListener('DOMContentLoaded', () => {
      * Applies special handling if a model is present but CUDA is unavailable.
      *
      * @param {boolean} modelPresent - Whether a local LLM model is available.
+     * @param {boolean} modelReady - Whether the local LLM model is ready to use.
      * @param {boolean} cudaAvailable - Whether CUDA is available on the system.
-     * @param modelAvailability
      */
-    function updateLocalLlmStatus(modelPresent, cudaAvailable, modelAvailability) {
+    function updateLocalLlmStatus(modelPresent, modelReady, cudaAvailable) {
 
+        // Update text and indicator stati
         updateTileStatus(dom.localLlmStatus.modelNameText, dom.localLlmStatus.modelNameIndicator, modelPresent);
-        updateTileStatus(dom.localLlmStatus.modelStatusText, dom.localLlmStatus.modelStatusIndicator, modelAvailability);
+        updateTileStatus(dom.localLlmStatus.modelStatusText, dom.localLlmStatus.modelStatusIndicator, modelReady);
         updateTileStatus(dom.localLlmStatus.cudaText, dom.localLlmStatus.cudaIndicator, cudaAvailable, 'Available', 'Not Available');
+
+        // Update group indicator
         dom.localLlmStatus.group.classList.remove('status-present', 'status-not-present', 'status-warning');
-        setSummaryOptionEnabled(1, modelPresent);
-        if (modelPresent && modelAvailability && cudaAvailable) {
+
+        if (llmState.get('isLocalLlmReady')) {
             dom.localLlmStatus.group.classList.add('status-present');
-        } else if (modelPresent && modelAvailability && !cudaAvailable) {
+        } else if (modelPresent && modelReady && !cudaAvailable) {
             dom.localLlmStatus.group.classList.add('status-flashing');
         } else {
             dom.localLlmStatus.group.classList.add('status-not-present');
@@ -1625,30 +1691,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     /**
-     * Enables or disables a summary method option in the selector UI.
-     * If the currently selected option is disabled, resets the selection to the default (mode 0).
+     * Enables or disables the track button based on the provided parameter.
      *
-     * @param {number} mode - The numeric identifier of the summary method option:
-     * @param {boolean} enabled - Whether the option should be enabled (true) or disabled (false).
+     * @param {boolean} enabled - A boolean indicating whether the track button should be enabled or disabled.
      */
-    function setSummaryOptionEnabled(mode, enabled) {
+    function setTrackButtonEnabled(enabled) {
+        dom.trackBtn.disabled = !enabled;
+    }
 
-        const option = document.querySelector(`#summaryMethodSelector .llm-slider-option[data-mode="${mode}"]`);
-        if (!option) return;
 
-        if (enabled) {
-            option.classList.remove("disabled");
-            option.setAttribute("aria-disabled", "false");
-        } else {
-            option.classList.add("disabled");
-            option.setAttribute("aria-disabled", "true");
+    /**
+     * Evaluates the current summary mode and its status from llmState,
+     * then updates the track button's UI accordingly.
+     */
+    function updateTrackButtonState() {
+        const currentMode = llmState.get('mode');
 
-            // If the currently selected option is being disabled, reset to default (mode 0)
-            if (option.classList.contains("selected")) {
-                option.classList.remove("selected");
-                const defaultOption = document.querySelector(`#summaryMethodSelector .llm-slider-option[data-mode="0"]`);
-                if (defaultOption) defaultOption.classList.add("selected");
-            }
+        switch (currentMode) {
+            case 0:
+                // Heuristic summary
+                setTrackButtonEnabled(true);
+                break;
+            case 1:
+                // Local LLM summary
+                if (state.isTracking) {
+                    setTrackButtonEnabled(llmState.get('isLocalLlmReady'));
+                }
+                break;
+            case 2:
+                // Remote API summary
+                if (state.isTracking) {
+                    setTrackButtonEnabled(llmState.get('isApiLlmReady'));
+                }
+                break;
+            default:
+                setTrackButtonEnabled(false);
+                break;
         }
     }
 
