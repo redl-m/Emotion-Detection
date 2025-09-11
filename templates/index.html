@@ -148,6 +148,11 @@
                     <span class="status-text" id="apiUrlStatusText">Not Present</span>
                     <div class="status-indicator" id="apiUrlStatusIndicator"></div>
                 </div>
+                <div class="status-tile">
+                    <span>API Model</span>
+                    <span class="status-text" id="apiModelStatusText">Not Present</span>
+                    <div class="status-indicator" id="apiModelStatusIndicator"></div>
+                </div>
             </div>
 
             <div class="status-group-container chart-container" id="llmComputationTile" style="display: none;">
@@ -167,7 +172,7 @@
                 </div>
             </div>
 
-            <div class="settings-tile chart-container">
+            <div id="localModelSettingsTile" class="settings-tile chart-container" style="display: none;">
                 <div class="tile-header">
                     <h3>Local LLM Model</h3>
                     <a href="https://huggingface.co/models" target="_blank" class="tile-link">Browse Models</a>
@@ -185,7 +190,7 @@
                 </div>
             </div>
 
-            <div class="settings-tile chart-container">
+            <div id="apiKeySettingsTile" class="settings-tile chart-container" style="display: none;">
                 <div class="tile-header">
                     <h3>API Key</h3>
                 </div>
@@ -198,7 +203,7 @@
                 </div>
             </div>
 
-            <div class="settings-tile chart-container">
+            <div id="apiUrlSettingsTile" class="settings-tile chart-container" style="display: none;">
                 <div class="tile-header">
                     <h3>API URL</h3>
                 </div>
@@ -215,7 +220,7 @@
                 </div>
             </div>
 
-            <div class="settings-tile chart-container">
+            <div id="apiModelSettingsTile" class="settings-tile chart-container" style="display: none;">
                 <div class="tile-header">
                     <h3>API Model</h3>
                 </div>
