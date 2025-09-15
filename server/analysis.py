@@ -640,21 +640,17 @@ class LocalLLM:
 
     def download_with_progress(self):
         """
-        Download model files from the Hugging Face Hub with per-file progress
-        reporting redirected through ProgressRedirector and the status queue.
+        Download model files, reporting progress through a consolidated event stream.
 
-        Reports each file's start, progress, and completion, handling errors
-        gracefully while ensuring stdout/stderr are restored.
-
-        :raises:
-            Exception: If any exception occurs during the download process.
+        Sends an initial 'model_downloading' status for backward compatibility,
+        followed by detailed 'download_progress_update' messages for the UI.
         """
         try:
             api = HfApi()
             repo_tree = api.list_repo_tree(repo_id=self.model_name)
             repo_files = [item for item in repo_tree if isinstance(item, RepoFile)]
 
-            # Can't easily do overall progress with this method, so we focus on per-file
+            # Initial compatibility message
             print(f"INFO: Starting download of {len(repo_files)} files.")
             self.status_queue.put({
                 'type': 'status',
@@ -664,46 +660,63 @@ class LocalLLM:
                 }
             })
 
-            # Loop through each file and download it inside our progress redirector
-            for file_info in repo_files:
-                print(f"INFO: Downloading file: {file_info.path} ({file_info.size / 1e6:.2f} MB)")
+            # Send detailed setup information ---
+            files_payload = [{'path': f.path, 'size': f.size} for f in repo_files]
+            self.status_queue.put({
+                'type': 'download_progress_update',
+                'payload': {
+                    'stage': 'info',
+                    'total_files': len(repo_files),
+                    'files': files_payload
+                }
+            })
+
+            # Loop through each file
+            for i, file_info in enumerate(repo_files):
+                # Announce the start of a specific file
                 self.status_queue.put({
-                    'type': 'status',
+                    'type': 'download_progress_update',
                     'payload': {
-                        'status': 'model_downloading',
-                        'message': f'Downloading file: {file_info.path} ({file_info.size / 1e6:.2f} MB)'
+                        'stage': 'start_file',
+                        'current_file_index': i
                     }
                 })
 
-                # Use the context manager to capture progress for this specific download
                 with ProgressRedirector(self.status_queue, file_info):
                     hf_hub_download(
                         repo_id=self.model_name,
                         filename=file_info.path,
                         resume_download=True,
-                        # No tqdm_class argument here
                     )
-                # After the 'with' block, stdout is automatically restored to normal
-                print(f"\nINFO: Finished downloading {file_info.path}")
+
+                # Announce the file is complete
                 self.status_queue.put({
-                    'type': 'status',
+                    'type': 'download_progress_update',
                     'payload': {
-                        'status': 'model_downloading',
-                        'message': f'Finished downloading {file_info.path}.'
+                        'stage': 'complete_file'
                     }
                 })
 
+            # Announce overall completion
+            self.status_queue.put({
+                'type': 'download_progress_update',
+                'payload': {
+                    'stage': 'complete_all',
+                    'message': 'Model download completed successfully.'
+                }
+            })
+
         except Exception as e:
-            # Ensure stdout is restored even if an error occurs somewhere else
-            # This is a fallback, the context manager should handle it
-            if isinstance(sys.stdout, TqdmProgressCapturer):
+            # Restore stdout
+            if hasattr(sys.stdout, 'original_stdout'):
                 sys.stdout = sys.stdout.original_stdout
 
             print(f"ERROR during model download: {e}")
+            # Send a structured error message
             self.status_queue.put({
-                'type': 'status',
+                'type': 'download_progress_update',
                 'payload': {
-                    'status': 'error',
+                    'stage': 'error',
                     'message': f'Download failed: {str(e)}'
                 }
             })

@@ -409,10 +409,11 @@ def create_app():
             try:
                 message = queue.get()  # Blocks until a message is available
                 message_type = message.get('type')
+                payload = message.get('payload', {})
                 # Status update
                 if message_type == 'status':
-                    print(f"INFO: Received status from worker via IPC: {message['payload']}")
-                    socketio.emit('summary_status', message['payload'])
+                    print(f"INFO: Received status from worker via IPC: {payload}")
+                    socketio.emit('summary_status', payload)
                     payload = message.get('payload', {})
                     if isinstance(payload, dict) and payload.get('status') == 'error':
                         APP_STATE["local_model_loading"] = False
@@ -436,7 +437,10 @@ def create_app():
                                 pending_summary_task = None
                 # Percentage update for progress bar
                 elif message_type == 'model_downloading':
-                    socketio.emit('model_downloading', message['payload'])
+                    socketio.emit('model_downloading', payload)
+                # File download update for progress bar
+                elif message_type == 'download_progress_update':
+                    socketio.emit('model_download_update', payload)
             except Exception as e:
                 print(f"ERROR in queue_listener: {e}")
 

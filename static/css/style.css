@@ -804,6 +804,65 @@ path.line-ts {
     animation: shimmer 3.5s ease-in-out infinite;
 }
 
+.file-count-text {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    display: block;
+    margin-top: 5px;
+    height: 1.2em;
+}
+
+.progress-bar-fill.progress-bar-error {
+    background-color: var(--status-red);
+}
+
+.download-text-wrapper {
+    margin-bottom: 8px;
+    min-height: 1.2em;
+}
+
+#llmStatusText {
+    word-break: break-all;
+}
+
+.file-count-text {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-align: center;
+    margin-bottom: 12px;
+    height: 1.2em;
+}
+
+/* Container for the overall progress segments */
+.overall-progress-container {
+    display: flex;
+    width: 100%;
+    gap: 4px;
+    height: 8px;
+    margin-bottom: 12px;
+}
+
+/* Style for each individual segment in the overall progress bar */
+.progress-segment {
+    flex-grow: 1;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    transition: background-color 0.4s ease;
+}
+
+/* State for a segment when its file is completed */
+.progress-segment.completed {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+}
+
+/* State for the segment of the file currently downloading */
+.progress-segment.in-progress {
+    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-color) 50%, transparent);
+}
+
 
 /* Animation that moves the shimmer */
 @keyframes shimmer {

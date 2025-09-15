@@ -76,7 +76,9 @@ document.addEventListener('DOMContentLoaded', () => {
             cudaIndicator: document.getElementById('cudaStatusIndicator'),
             progressBarContainer: document.getElementById('downloadProgressContainer'),
             progressBarFill: document.getElementById('downloadProgressBarFill'),
-            progressBarText: document.getElementById('downloadProgressBarText')
+            progressBarText: document.getElementById('downloadProgressBarText'),
+            fileCountText: document.getElementById('downloadFileCountText'),
+            overallProgress: document.getElementById('downloadOverallProgress')
         },
 
         // Settings Inputs & Buttons
@@ -339,49 +341,142 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
 
-    /*
-    Encapsulates all logic for controlling the download progress bar.
-     */
     const progressBarManager = {
-        // Direct reference to the necessary DOM elements
         elements: {
             container: dom.localLlmStatus.progressBarContainer,
             fill: dom.localLlmStatus.progressBarFill,
             text: dom.localLlmStatus.progressBarText,
-            statusText: dom.llmComputation.statusText // The main status message element
+            statusText: dom.llmComputation.statusText,
+            fileCountText: dom.localLlmStatus.fileCountText,
+            overallProgress: dom.localLlmStatus.overallProgress
+        },
+
+        state: {
+            files: [],
+            totalFiles: 0,
+            currentFileIndex: -1 // Start at -1 before first file
         },
 
         /**
          * Shows the progress bar and sets its initial state.
-         * @param {string} initialMessage The message to display while starting.
+         * @param initialMessage - The initial message to display.
          */
         show(initialMessage = 'Starting download...') {
             this.elements.statusText.textContent = initialMessage;
-            this.elements.fill.style.width = '0%';
-            this.elements.text.textContent = '0%';
             this.elements.container.classList.remove('hidden');
         },
 
         /**
-         * Hides the progress bar.
+         * Initializes the entire download UI, creating the segmented progress bar.
+         * @param files - The list of files to download.
+         * @param totalFiles - The total number of files to download.
          */
-        hide() {
-            this.elements.container.classList.add('hidden');
+        init(files, totalFiles) {
+            this.state = {files, totalFiles, currentFileIndex: -1};
+
+            // Clear any previous segments and create new ones
+            this.elements.overallProgress.innerHTML = '';
+            for (let i = 0; i < totalFiles; i++) {
+                const segment = document.createElement('div');
+                segment.className = 'progress-segment';
+                segment.dataset.fileIndex = i;
+                this.elements.overallProgress.appendChild(segment);
+            }
+
+            this.elements.container.classList.remove('hidden');
+            this.elements.fill.classList.remove('progress-bar-error');
+            this.update(0);
         },
 
         /**
-         * Updates the progress bar's percentage and message.
-         * @param {number} percent The percentage (0-100).
-         * @param {string} message The message to display (e.g., "Downloading file.gguf").
+         * Updates UI for the start of a new file download.
+         * @param {number} fileIndex - The index of the file to start.
          */
-        update(percent, message) {
-            // Ensure percent is within bounds
-            const clampedPercent = Math.max(0, Math.min(100, percent));
+        startFile(fileIndex) {
+            this.state.currentFileIndex = fileIndex;
+            const file = this.state.files[fileIndex];
+            if (!file) return;
 
+            const fileName = file.path.split('/').pop();
+            const fileSizeMB = (file.size / 1e6).toFixed(2);
+
+            this.elements.statusText.textContent = `Downloading: ${fileName}`;
+            this.elements.fileCountText.textContent = `File ${fileIndex + 1} of ${this.state.totalFiles} (${fileSizeMB} MB)`;
+
+            // Highlight the current segment
+            const currentSegment = this.elements.overallProgress.querySelector(`[data-file-index="${fileIndex}"]`);
+            if (currentSegment) {
+                currentSegment.classList.add('in-progress');
+            }
+
+            this.update(0); // Reset per-file progress bar
+        },
+
+        /**
+         * Updates the per-file progress bar's percentage.
+         * @param {number} percent - The new percentage to display.
+         */
+        update(percent) {
+            const clampedPercent = Math.max(0, Math.min(100, percent));
             this.elements.fill.style.width = clampedPercent + '%';
             this.elements.text.textContent = Math.round(clampedPercent) + '%';
-            if (message) {
-                this.elements.statusText.textContent = message;
+        },
+
+        /**
+         * Marks the current file as complete and updates its segment.
+         */
+        completeFile() {
+            this.update(100);
+            const completedSegment = this.elements.overallProgress.querySelector(`[data-file-index="${this.state.currentFileIndex}"]`);
+            if (completedSegment) {
+                completedSegment.classList.remove('in-progress');
+                completedSegment.classList.add('completed');
+            }
+        },
+
+        /**
+         * Finalizes the UI when all downloads are complete.
+         * @param {string} message - The message to display at the end.
+         */
+        finish(message = 'Model download complete!') {
+            this.elements.statusText.textContent = message;
+            this.elements.fileCountText.textContent = 'All files downloaded.';
+
+            // Ensure all segments are marked as complete
+            this.elements.overallProgress.querySelectorAll('.progress-segment').forEach(seg => {
+                seg.classList.remove('in-progress');
+                seg.classList.add('completed');
+            });
+
+            setTimeout(() => this.hide(), 3000);
+        },
+
+        /**
+         * Hides all progress elements and resets their state.
+         */
+        hide() {
+            this.elements.container.classList.add('hidden');
+            this.elements.overallProgress.innerHTML = ''; // Clear segments
+            this.elements.fileCountText.textContent = '';
+        },
+
+        /**
+         * Displays an error state.
+         * @param {string} errorMessage - The error message to display.
+         */
+        handleError(errorMessage) {
+            this.elements.statusText.textContent = 'Error during download';
+            this.elements.fileCountText.textContent = errorMessage;
+            this.elements.fill.style.width = '100%';
+            this.elements.fill.classList.add('progress-bar-error');
+            this.elements.text.textContent = 'Failed';
+            this.elements.container.classList.remove('hidden');
+
+            // Mark the current segment as failed
+            const failedSegment = this.elements.overallProgress.querySelector(`[data-file-index="${this.state.currentFileIndex}"]`);
+            if (failedSegment) {
+                failedSegment.classList.remove('in-progress');
+                failedSegment.style.backgroundColor = '#e74c3c'; // Error color
             }
         }
     };
@@ -700,9 +795,51 @@ document.addEventListener('DOMContentLoaded', () => {
             state.lastState = data.status;
         });
 
+        // TODO: maybe simplify into single emit
+
         // Listener for percentage updates when downloading models
         socket.on('model_downloading', (data) => {
             progressBarManager.update(data.percent_file, data.message);
+        });
+
+        // Listener for the model download progress bar's visibility
+        socket.on('model_download_update', (data) => {
+            // The 'stage' key tells us what action to take.
+            switch (data.stage) {
+                case 'info':
+                    // Initial setup call
+                    progressBarManager.init(data.files, data.total_files);
+                    break;
+
+                case 'start_file':
+                    // A new file is beginning
+                    progressBarManager.startFile(data.current_file_index);
+                    break;
+
+                case 'progress':
+                    // A percentage update for the current file
+                    progressBarManager.update(data.percentage);
+                    break;
+
+                case 'complete_file':
+                    // The current file has finished
+                    progressBarManager.completeFile();
+                    break;
+
+                case 'complete_all':
+                    // The entire download process is done
+                    progressBarManager.finish(data.message);
+                    break;
+
+                case 'error':
+                    // An error occurred
+                    progressBarManager.handleError(data.message);
+                    break;
+
+                default:
+                    console.warn('Received unknown download stage:', data.stage);
+                    break;
+            }
         });
 
         // LLM State Listeners
