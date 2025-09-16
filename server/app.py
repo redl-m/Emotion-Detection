@@ -435,10 +435,7 @@ def create_app():
                                 _execute_local_summary()
                                 # Clear the task so it doesn't run again
                                 pending_summary_task = None
-                # Percentage update for progress bar
-                elif message_type == 'model_downloading':
-                    socketio.emit('model_downloading', payload)
-                # File download update for progress bar
+                # Percentage & file download update for progress bar
                 elif message_type == 'download_progress_update':
                     socketio.emit('model_download_update', payload)
             except Exception as e:

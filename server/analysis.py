@@ -549,11 +549,6 @@ class LocalLLM:
                 })
             else:
                 print(f"INFO: Downloading '{model_name}'. This might take a while.")
-                self.status_queue.put({
-                    'type': 'status',
-                    'payload': {'status': 'model_downloading', 'message': f'Downloading {self.model_name}. This might '
-                                                                          f'take a while.'}
-                })
                 self.download_with_progress()
 
             # TODO: model_kwargs is passed to the model and for some reason messes with openai/gpt-oss-20b and openai/gpt-oss-120b
@@ -644,8 +639,7 @@ class LocalLLM:
         """
         Download model files, reporting progress through a consolidated event stream.
 
-        Sends an initial 'model_downloading' status for backward compatibility,
-        followed by detailed 'download_progress_update' messages for the UI.
+        Sends an initial detailed 'download_progress_update' message for the UI.
         """
         try:
             api = HfApi()
@@ -653,25 +647,18 @@ class LocalLLM:
             repo_files = [item for item in repo_tree if isinstance(item, RepoFile)]
 
             # Initial compatibility message
-            print(f"INFO: Starting download of {len(repo_files)} files.")
-            self.status_queue.put({
-                'type': 'status',
-                'payload': {
-                    'status': 'model_downloading',
-                    'message': f'Starting download of {len(repo_files)} files.'
-                }
-            })
-
-            # Send detailed setup information ---
             files_payload = [{'path': f.path, 'size': f.size} for f in repo_files]
+            print(f"INFO: Starting download of {len(repo_files)} files.")
             self.status_queue.put({
                 'type': 'download_progress_update',
                 'payload': {
                     'stage': 'info',
+                    'model_name': self.model_name,
                     'total_files': len(repo_files),
                     'files': files_payload
                 }
             })
+            # print(f"Entry has been added to status queue successfully: {self.status_queue}")
 
             # Loop through each file
             for i, file_info in enumerate(repo_files):

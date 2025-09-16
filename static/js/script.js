@@ -758,31 +758,41 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+
+        /**
+         * Updates the UI to show the status loading.
+         */
+        function updateModelStatusTextLoading() {
+            dom.localLlmStatus.modelStatusText.textContent = 'Loading';
+
+            // Hide the old summary if a new one is being generated
+            if (state.lastState === 'success') {
+                setTimeout(() => {
+                    dom.summaryContainer.classList.add('hidden');
+                }, 3000);
+            }
+        }
+
         // Listener for live summary status updates from the backend
         socket.on('summary_status', (data) => {
+
             console.log('Received summary status:', data);
 
             // Update the main status unless its a model_downloading update
-            if (data.status !== 'model_downloading') {
-                dom.llmComputation.statusText.textContent = data.message;
-            }
+            dom.llmComputation.statusText.textContent = data.message;
 
             // Get the configuration for the current status
             const config = statusConfigs[data.status];
             if (!config) return; // Exit if the status is unknown
+            // TODO: visibility at top not yellow for initializing!?
+            // Hide the progress bar
+            progressBarManager.hide();
 
             setIndicatorStatus(
                 Object.values(config.domElements),
                 config.indicator
             );
             const tileConfig = {...config.tileConfig}; // Create a mutable copy
-
-            // Decide on the progress bar's visibility
-            if (data.status === 'model_downloading') {
-                progressBarManager.show(data.message);
-            } else {
-                progressBarManager.hide();
-            }
 
             // The model is ready and a summary can be started
             if (data.status === 'model_ready') {
@@ -798,15 +808,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // The model is currently loading
-            if (data.status === 'initializing' || data.status === 'model_downloading' || data.status === 'model_loading_from_cache') {
-                dom.localLlmStatus.modelStatusText.textContent = 'Loading'; // TODO: when starting a worker, loading is not instantly applied
-
-                // Hide the old summary if a new one is being generated
-                if (state.lastState === 'success') {
-                    setTimeout(() => {
-                        dom.summaryContainer.classList.add('hidden');
-                    }, 3000);
-                }
+            if (data.status === 'initializing' || data.status === 'model_loading_from_cache') {
+                updateModelStatusTextLoading();
+                setIndicatorStatus([dom.localLlmStatus.group, dom.localLlmStatus.modelStatusIndicator], 'status-warning');
             }
 
             // The model is not yet ready, and the user has cancelled the summary: the button is disabled until a new model is set
@@ -824,20 +828,18 @@ document.addEventListener('DOMContentLoaded', () => {
             state.lastState = data.status;
         });
 
-        // TODO: maybe simplify into single emit
-
-        // Listener for percentage updates when downloading models
-        socket.on('model_downloading', (data) => {
-            progressBarManager.update(data.percent_file);
-        });
-
-        // Listener for the model download progress bar's visibility
+        // Listener for percentage and file updates for model download
         socket.on('model_download_update', (data) => {
-            // The 'stage' key tells us what action to take.
+
+            updateModelStatusTextLoading();
+            setIndicatorStatus([dom.localLlmStatus.modelStatusIndicator, dom.localLlmStatus.group], 'status-warning');
+            state.lastState = 'model_downloading';
+
             switch (data.stage) {
                 case 'info':
-                    // Initial setup call
+                    // Initial setup call#
                     progressBarManager.init(data.files, data.total_files);
+                    progressBarManager.show(data.message);
                     break;
 
                 case 'start_file':
@@ -866,6 +868,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'error':
                     // An error occurred
                     progressBarManager.handleError(data.message);
+                    s
+                    state.lastState = 'error';
                     break;
 
                 default:
