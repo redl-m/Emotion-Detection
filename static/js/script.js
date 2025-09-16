@@ -274,6 +274,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 llmComputationIndicator: dom.llmComputation.statusIndicator
             }
         },
+        'model_retrying_trust_remote_code': {
+            indicator: 'status-warning',
+            tileConfig: {
+                headerText: 'LLM Loading Status',
+                buttonText: 'Cancel Loading',
+                buttonVisible: true,
+            },
+            domElements: {
+                group: dom.localLlmStatus.group,
+                modelStatusIndicator: dom.localLlmStatus.modelStatusIndicator,
+                llmComputationIndicator: dom.llmComputation.statusIndicator
+            }
+        },
         'model_ready': {
             indicator: 'status-present',
             tileConfig: {
@@ -504,7 +517,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Mark the current segment as failed
             const failedSegment = this.elements.overallProgress.querySelector(`[data-file-index="${this.state.currentFileIndex}"]`);
             if (failedSegment) {
-                seg.classList.remove('pulsing');
+                failedSegment.classList.remove('pulsing');
                 failedSegment.style.backgroundColor = '#e74c3c'; // Error color
             }
         }
@@ -778,7 +791,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             console.log('Received summary status:', data);
 
-            // Update the main status unless its a model_downloading update
+            // Update the main status
             dom.llmComputation.statusText.textContent = data.message;
 
             // Get the configuration for the current status

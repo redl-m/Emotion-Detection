@@ -239,7 +239,8 @@ class TqdmProgressCapturer(io.TextIOBase):
         self.original_stream = original_stream  # sys.stdout or sys.stderr
         self.line_buffer = ""
         self.last_percent = -1
-        self.progress_regex = re.compile(r"(\d+)\%\s*\|.*?\|\s*[\d.]+\w+/\s*[\d.]+\w+\s*\[.+?,\s*([^\]]+)\]") # captures percentage and speed
+        self.progress_regex = re.compile(
+            r"(\d+)\%\s*\|.*?\|\s*[\d.]+\w+/\s*[\d.]+\w+\s*\[.+?,\s*([^\]]+)\]")  # captures percentage and speed
 
     def write(self, s):
         """
@@ -486,20 +487,13 @@ class LocalLLM:
             status_queue=None,
             device=None,
             quantize_4bit=True,
-            trust_remote_code=False,  # TODO: might need to be enabled for certain models, make user interface button?
+            trust_remote_code=False,
     ):
         """
         Initialize the LocalLLM, setting up tokenizer, model configuration,
         device assignment, and status reporting.
-
-        :param model_name: Name of the local Hugging Face model to load.
-        :param status_queue: Queue used to send status updates to external systems.
-        :param device: Device for model execution ('cpu' or 'cuda'). Defaults to auto-detect.
-        :param quantize_4bit: Whether to apply 4-bit quantization when using CUDA.
-        :param trust_remote_code: Whether to trust custom model code from Hugging Face repositories.
         """
-
-        APP_STATE["local_model_ready"] = False  # default value of shared boolean
+        APP_STATE["local_model_ready"] = False
         print("INFO: Set local_model_ready state to False.")
 
         self.model_name = model_name
@@ -507,80 +501,47 @@ class LocalLLM:
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         print(f"INFO: Initializing LocalLLM '{model_name}' on device: {self.device}")
 
+        # Load model with trust_remote_code=False
         try:
-
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                model_name,
-                use_fast=True,
-                trust_remote_code=trust_remote_code
-            )
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-
-            model_kwargs = {
-                "device_map": "auto",
-                "low_cpu_mem_usage": True,
-                "trust_remote_code": trust_remote_code,
-            }
-
-            if self.device == "cuda":
-                if quantize_4bit:
-                    print("INFO: Applying 4-bit quantization for CUDA device.")
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_4bit=True,
-                        bnb_4bit_use_double_quant=True,
-                        bnb_4bit_quant_type="nf4",
-                        bnb_4bit_compute_dtype=torch.float16,
-                    )
-                    model_kwargs["quantization_config"] = quantization_config
-                else:
-                    model_kwargs["torch_dtype"] = torch.float16
-            else:
-                print("WARNING: CPU device detected. Quantization is disabled.")
-
-            print(f"INFO: Calling from_pretrained for '{model_name}'.")
-
-            if self.is_model_cached():
-                print(f"INFO: Loading '{model_name}' from cache.")
-                self.status_queue.put({
-                    'type': 'status',
-                    'payload': {'status': 'model_loading_from_cache',
-                                'message': f'Loading {self.model_name} from cache.'}
-                })
-            else:
-                print(f"INFO: Downloading '{model_name}'. This might take a while.")
-                self.download_with_progress()
-
-            # TODO: model_kwargs is passed to the model and for some reason messes with openai/gpt-oss-20b and openai/gpt-oss-120b
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                **model_kwargs
-            )
-
-            print("INFO: Model loading complete.")
-
-            # Backend communication status
-            self.status_queue.put({
-                'type': 'local_llm_model_ready',
-                'payload': True  # Signal that the model is ready
-            })
-            # Use the queue again for the final status update
-            self.status_queue.put({
-                'type': 'status',
-                'payload': {'status': 'model_ready', 'message': f'{self.model_name} ready.'}
-            })
+            self._load_model_and_tokenizer(trust_remote_code, quantize_4bit)
 
         except Exception as e:
-            print(f"ERROR: Failed to load local model '{model_name}'. Error: {e}")
-            # Backend communication status
-            self.status_queue.put({
-                'type': 'local_llm_model_ready',
-                'payload': False  # Signal error for backend
-            })
-            self.status_queue.put({
-                'type': 'status',
-                'payload': {'status': 'model_error', 'message': f'Error loading {self.model_name}.'}
-            })
+
+            error_str = str(e)
+
+            # If the error is due to trust_remote_code=False, try again with trust_remote_code=True
+            if "trust_remote_code=True" in error_str:
+                print(
+                    f"WARNING: Initial load failed. Retrying with trust_remote_code=True.\nOriginal error: {error_str}")
+                self.status_queue.put({
+                    'type': 'status',
+                    'payload': {'status': 'model_retrying_trust_remote_code',
+                                'message': f'Model requires change in configuration.\n'
+                                           f'Applying and restarting model loading.'}
+                })
+                try:
+                    # Second attempt: trust_remote_code to True
+                    self._load_model_and_tokenizer(trust_remote_code=True, quantize_4bit=quantize_4bit)
+                except Exception as retry_e:
+                    # Error in second attempt
+                    print(f"ERROR: Failed to load local model '{model_name}' on retry. Error: {retry_e}")
+                    self.status_queue.put({'type': 'local_llm_model_ready', 'payload': False})
+                    self.status_queue.put({'type': 'status', 'payload': {'status': 'model_error',
+                                                                         'message': f'Error loading {self.model_name}.'}})
+                    return  # Exit __init__
+            else:
+                # Different error from first try
+                print(f"ERROR: Failed to load local model '{model_name}'. Error: {e}")
+                self.status_queue.put({'type': 'local_llm_model_ready', 'payload': False})
+                self.status_queue.put({'type': 'status', 'payload': {'status': 'model_error',
+                                                                     'message': f'Error loading {self.model_name}.'}})
+                return  # Exit __init__
+
+        # Report to frontend on success
+        print("INFO: Model loading complete.")
+        self.status_queue.put({'type': 'local_llm_model_ready', 'payload': True})
+        self.status_queue.put(
+            {'type': 'status', 'payload': {'status': 'model_ready', 'message': f'{self.model_name} ready.'}})
 
         # Sensible short defaults for fast, concise summaries
         self.generation_defaults = dict(
@@ -591,6 +552,60 @@ class LocalLLM:
             pad_token_id=self.tokenizer.pad_token_id,
             eos_token_id=self.tokenizer.eos_token_id,
             use_cache=True,
+        )
+
+    def _load_model_and_tokenizer(self, trust_remote_code, quantize_4bit):
+        """
+        Helper method to load the tokenizer and model with a specific trust_remote_code setting.
+        :param trust_remote_code: Boolean flag to indicate whether to trust the remote code or not.
+        :param quantize_4bit: Boolean flag to indicate whether to quantize the model to 4-bit precision.
+        """
+        print(f"INFO: Attempting to load '{self.model_name}' with trust_remote_code={trust_remote_code}.")
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name,
+            use_fast=True,
+            trust_remote_code=trust_remote_code
+        )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # TODO: model_kwargs is passed to the model and for some reason messes with openai/gpt-oss-20b and openai/gpt-oss-120b
+        model_kwargs = {
+            "device_map": "auto",
+            "low_cpu_mem_usage": True,
+            "trust_remote_code": trust_remote_code,
+        }
+
+        if self.device == "cuda":
+            if quantize_4bit:
+                print("INFO: Applying 4-bit quantization for CUDA device.")
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.float16,
+                )
+                model_kwargs["quantization_config"] = quantization_config
+            else:
+                model_kwargs["torch_dtype"] = torch.float16
+        else:
+            print("WARNING: CPU device detected. Quantization is disabled.")
+
+        if self.is_model_cached():
+            print(f"INFO: Loading '{self.model_name}' from cache.")
+            self.status_queue.put({
+                'type': 'status',
+                'payload': {'status': 'model_loading_from_cache',
+                            'message': f'Loading {self.model_name} from cache.'}
+            })
+        else:
+            print(f"INFO: Downloading '{self.model_name}'. This might take a while.")
+            self.download_with_progress()
+
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.model_name,
+            **model_kwargs
         )
 
     def generate_narrative(self, prompt, stopping_criteria=None, **gen_overrides):
