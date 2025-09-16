@@ -571,6 +571,23 @@ class LocalLLM:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         # TODO: model_kwargs is passed to the model and for some reason messes with openai/gpt-oss-20b and openai/gpt-oss-120b
+        """
+        Note:   This is a totally stubborn bug: using plain quantization parameters instead of a config
+                object also did not solve the issue.        
+
+        Error message using the config object:
+
+        ERROR: Failed to load local model 'openai/gpt-oss-20b'. Error: 'BitsAndBytesConfig' object has no attribute 'get_loading_attributes'
+        [Worker-15024] Model loaded successfully.
+
+        Console logs and error message using quantization parameters:
+
+        The `load_in_4bit` and `load_in_8bit` arguments are deprecated and will be removed in the future versions. Please, pass a `BitsAndBytesConfig` object in `quantization_config` argument instead.
+        ERROR: Failed to load local model 'openai/gpt-oss-20b'. Error: 'BitsAndBytesConfig' object has no attribute 'get_loading_attributes'
+        [Worker-15024] Model loaded successfully.
+
+        dead
+        """
         model_kwargs = {
             "device_map": "auto",
             "low_cpu_mem_usage": True,
@@ -608,21 +625,16 @@ class LocalLLM:
             **model_kwargs
         )
 
-    def generate_narrative(self, prompt, stopping_criteria=None, **gen_overrides):
+    def generate_narrative(self, prompt, **gen_overrides):
         """
         Generate a text continuation based on the given prompt using the local LLM.
 
         :param prompt: Input text to condition generation on.
-        :param stopping_criteria: Optional list of stopping rules for halting generation.
         :param gen_overrides: Additional generation parameters that override defaults.
         :return: Generated narrative as a string.
         """
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
         gen_cfg = {**self.generation_defaults, **gen_overrides}
-
-        # Add stopping criteria to the generation config if provided
-        if stopping_criteria:
-            gen_cfg["stopping_criteria"] = stopping_criteria
 
         with torch.inference_mode():
             output_ids = self.model.generate(**inputs, **gen_cfg)
