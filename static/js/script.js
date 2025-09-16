@@ -342,6 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     const progressBarManager = {
+
         elements: {
             container: dom.localLlmStatus.progressBarContainer,
             fill: dom.localLlmStatus.progressBarFill,
@@ -357,6 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentFileIndex: -1 // Start at -1 before first file
         },
 
+
         /**
          * Shows the progress bar and sets its initial state.
          * @param initialMessage - The initial message to display.
@@ -365,6 +367,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.elements.statusText.textContent = initialMessage;
             this.elements.container.classList.remove('hidden');
         },
+
 
         /**
          * Initializes the entire download UI, creating the segmented progress bar.
@@ -388,6 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.update(0);
         },
 
+
         /**
          * Updates UI for the start of a new file download.
          * @param {number} fileIndex - The index of the file to start.
@@ -401,16 +405,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const fileSizeMB = (file.size / 1e6).toFixed(2);
 
             this.elements.statusText.textContent = `Downloading: ${fileName}`;
-            this.elements.fileCountText.textContent = `File ${fileIndex + 1} of ${this.state.totalFiles} (${fileSizeMB} MB)`;
 
-            // Highlight the current segment
+            // Store the base text and display it.
+            this.state.currentFileText = `File ${fileIndex + 1} of ${this.state.totalFiles} (${fileSizeMB} MB)`;
+            this.elements.fileCountText.textContent = this.state.currentFileText;
+
+            // Remove pulsing from any previous segment and add to the current one.
+            this.elements.overallProgress.querySelectorAll('.pulsing').forEach(seg => seg.classList.remove('pulsing'));
             const currentSegment = this.elements.overallProgress.querySelector(`[data-file-index="${fileIndex}"]`);
             if (currentSegment) {
-                currentSegment.classList.add('in-progress');
-            }
 
-            this.update(0); // Reset per-file progress bar
+                // Highlight the current segment
+                const currentSegment = this.elements.overallProgress.querySelector(`[data-file-index="${fileIndex}"]`);
+                if (currentSegment) {
+                    currentSegment.classList.add('in-progress');
+                }
+
+                this.update(0); // Reset per-file progress bar
+            }
         },
+
 
         /**
          * Updates the per-file progress bar's percentage.
@@ -422,6 +436,21 @@ document.addEventListener('DOMContentLoaded', () => {
             this.elements.text.textContent = Math.round(clampedPercent) + '%';
         },
 
+
+        /**
+         * Updates progress including the download speed.
+         * @param {object} progressData - Contains percent and speed.
+         */
+        updateProgress({percent, speed}) {
+            this.update(percent); // Update the bar percentage
+
+            // If speed data is available, append it to the file count text
+            if (speed) {
+                this.elements.fileCountText.textContent = `${this.state.currentFileText} - ${speed}`;
+            }
+        },
+
+
         /**
          * Marks the current file as complete and updates its segment.
          */
@@ -429,7 +458,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.update(100);
             const completedSegment = this.elements.overallProgress.querySelector(`[data-file-index="${this.state.currentFileIndex}"]`);
             if (completedSegment) {
-                completedSegment.classList.remove('in-progress');
+                completedSegment.classList.remove('pulsing');
                 completedSegment.classList.add('completed');
             }
         },
@@ -444,7 +473,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Ensure all segments are marked as complete
             this.elements.overallProgress.querySelectorAll('.progress-segment').forEach(seg => {
-                seg.classList.remove('in-progress');
+                seg.classList.remove('pulsing');
                 seg.classList.add('completed');
             });
 
@@ -475,7 +504,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Mark the current segment as failed
             const failedSegment = this.elements.overallProgress.querySelector(`[data-file-index="${this.state.currentFileIndex}"]`);
             if (failedSegment) {
-                failedSegment.classList.remove('in-progress');
+                seg.classList.remove('pulsing');
                 failedSegment.style.backgroundColor = '#e74c3c'; // Error color
             }
         }
@@ -799,7 +828,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Listener for percentage updates when downloading models
         socket.on('model_downloading', (data) => {
-            progressBarManager.update(data.percent_file, data.message);
+            progressBarManager.update(data.percent_file);
         });
 
         // Listener for the model download progress bar's visibility
@@ -818,7 +847,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 case 'progress':
                     // A percentage update for the current file
-                    progressBarManager.update(data.percentage);
+                    progressBarManager.updateProgress({
+                        percent: data.percent_file,
+                        speed: data.speed
+                    });
                     break;
 
                 case 'complete_file':
@@ -1994,4 +2026,5 @@ document.addEventListener('DOMContentLoaded', () => {
     // H. Start the application
     // ---------------------------------------------------
     init();
-});
+})
+;

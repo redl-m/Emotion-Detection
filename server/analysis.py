@@ -239,12 +239,12 @@ class TqdmProgressCapturer(io.TextIOBase):
         self.original_stream = original_stream  # sys.stdout or sys.stderr
         self.line_buffer = ""
         self.last_percent = -1
-        self.percent_regex = re.compile(r"(\d+)%\|")
+        self.progress_regex = re.compile(r"(\d+)\%\s*\|.*?\|\s*[\d.]+\w+/\s*[\d.]+\w+\s*\[.+?,\s*([^\]]+)\]") # captures percentage and speed
 
     def write(self, s):
         """
         Write a string to the original stream, capture tqdm output, and forward
-        progress percentage updates to the status queue.
+        progress percentage and speed updates to the status queue.
 
         :param s: String to write.
         :return: Number of characters written.
@@ -256,22 +256,24 @@ class TqdmProgressCapturer(io.TextIOBase):
         # Add the new chunk to the line buffer
         self.line_buffer += s
 
-        # Process the buffer if we see a carriage return or a newline
+        # Process the buffer until a carriage return or a newline
         if '\r' in s or '\n' in s:
-            # Search for the percentage in the complete line
-            match = self.percent_regex.search(self.line_buffer)
+            # Search for progress details in the complete line
+            match = self.progress_regex.search(self.line_buffer)
             if match:
                 percent = int(match.group(1))
+                speed_str = match.group(2).strip()  # e.g., "1.52MB/s"
+
+                # Throttle updates to only send when the percentage changes
                 if percent > self.last_percent:
                     self.last_percent = percent
 
                     self.status_queue.put({
-                        'type': 'model_downloading',
+                        'type': 'download_progress_update',
                         'payload': {
-                            'status': 'percentage_update',
-                            'message': f"Downloading {self.file_info.path}",
+                            'stage': 'progress',
                             'percent_file': percent,
-                            'filename': self.file_info.path
+                            'speed': speed_str
                         }
                     })
 

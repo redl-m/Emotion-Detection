@@ -863,6 +863,26 @@ path.line-ts {
     box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-color) 50%, transparent);
 }
 
+/* Active download segment */
+@keyframes pulse-glow {
+    0% {
+        box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-color) 50%, transparent);
+    }
+    50% {
+        box-shadow: 0 0 12px 2px color-mix(in srgb, var(--accent-color) 75%, transparent);
+    }
+    100% {
+        box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-color) 50%, transparent);
+    }
+}
+
+/* State for the segment of the file currently downloading */
+.progress-segment.pulsing {
+    animation: pulse-glow 2s ease-in-out infinite;
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+}
+
 
 /* Animation that moves the shimmer */
 @keyframes shimmer {
