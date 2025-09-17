@@ -379,6 +379,8 @@ document.addEventListener('DOMContentLoaded', () => {
         show(initialMessage = 'Starting download...') {
             this.elements.statusText.textContent = initialMessage;
             this.elements.container.classList.remove('hidden');
+            this.elements.overallProgress.classList.remove('hidden');
+            this.elements.fileCountText.classList.remove('hidden');
         },
 
 
@@ -498,6 +500,8 @@ document.addEventListener('DOMContentLoaded', () => {
          */
         hide() {
             this.elements.container.classList.add('hidden');
+            this.elements.overallProgress.classList.add('hidden');
+            this.elements.fileCountText.classList.add('hidden');
             this.elements.overallProgress.innerHTML = ''; // Clear segments
             this.elements.fileCountText.textContent = '';
         },
@@ -1856,13 +1860,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Transitional state: Indicators are handled by event listeners directly
         if (['initializing', 'model_loading_from_cache', 'model_downloading'].includes(state.lastState)) {
             dom.localLlmStatus.modelStatusText.textContent = 'Loading';
-            // Hide the old summary if a new one is being generated
-            console.log("The old summary will be hidden because state.lastState: ", state.lastState, " condition: ", state.lastState === 'success');
-            if (state.lastState === 'success') {
-                setTimeout(() => {
-                    dom.summaryContainer.classList.add('hidden');
-                }, 3000);
-            }
             return;
         }
 
@@ -2051,7 +2048,6 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function hideOldSummary() {
         // Hide the old summary if a new one is being generated
-        console.log("The old summary will be hidden because state.lastState: ", state.lastState, " condition: ", state.lastState === 'success');
         if (state.lastState === 'success') {
             setTimeout(() => {
                 dom.summaryContainer.classList.add('hidden');
