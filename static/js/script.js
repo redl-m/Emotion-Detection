@@ -695,6 +695,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const mode = llmState.get('mode');
                 console.log(`'Summarize Again' clicked. Restarting with mode: ${mode}`);
 
+                // Hide the summary if the selected mode is local LLM and an old summary is visible
+                if (mode === 1) {
+                    hideOldSummary();
+                }
+
                 socket.emit('restart_and_summarize', {
                     model_name: llmState.get('model'),
                     use_llm: mode
@@ -771,21 +776,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-
-        /**
-         * Updates the UI to show the status loading.
-         */
-        function updateModelStatusTextLoading() {
-            dom.localLlmStatus.modelStatusText.textContent = 'Loading';
-
-            // Hide the old summary if a new one is being generated
-            if (state.lastState === 'success') {
-                setTimeout(() => {
-                    dom.summaryContainer.classList.add('hidden');
-                }, 3000);
-            }
-        }
-
         // Listener for live summary status updates from the backend
         socket.on('summary_status', (data) => {
 
@@ -797,7 +787,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Get the configuration for the current status
             const config = statusConfigs[data.status];
             if (!config) return; // Exit if the status is unknown
-            // TODO: visibility at top not yellow for initializing!?
+
             // Hide the progress bar
             progressBarManager.hide();
 
@@ -820,12 +810,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.hasSummaryBeenSuccessful = true;
             }
 
-            // The model is currently loading
-            if (data.status === 'initializing' || data.status === 'model_loading_from_cache') {
-                updateModelStatusTextLoading();
-                setIndicatorStatus([dom.localLlmStatus.group, dom.localLlmStatus.modelStatusIndicator], 'status-warning');
-            }
-
             // The model is not yet ready, and the user has cancelled the summary: the button is disabled until a new model is set
             if (data.status === 'cancelled' && (state.lastState === 'initializing' ||
                 state.lastState === 'model_downloading' || state.lastState === 'model_loading_from_cache')) {
@@ -844,13 +828,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Listener for percentage and file updates for model download
         socket.on('model_download_update', (data) => {
 
-            updateModelStatusTextLoading();
-            setIndicatorStatus([dom.localLlmStatus.modelStatusIndicator, dom.localLlmStatus.group], 'status-warning');
-            state.lastState = 'model_downloading';
+            state.lastState = 'model_downloading'; // Update last stage for case of cancellation
 
             switch (data.stage) {
                 case 'info':
-                    // Initial setup call#
+                    // Initial setup call
                     progressBarManager.init(data.files, data.total_files);
                     progressBarManager.show(data.message);
                     break;
@@ -1081,6 +1063,11 @@ document.addEventListener('DOMContentLoaded', () => {
             setIndicatorStatus([dom.llmComputation.statusIndicator], 'status-warning');
 
             const mode = llmState.get('mode');
+
+            // Hide the old summary if the selected method is local LLM and an old summary exists
+            if (mode === 1) {
+                hideOldSummary();
+            }
 
             // If the model is not ready and the selected method is local LLM, first load the model before summarizing
             if (!llmState.get('isLocalLlmReady') && mode === 1) {
@@ -1815,20 +1802,31 @@ document.addEventListener('DOMContentLoaded', () => {
      *
      * @param {HTMLElement} textEl - The element where the status text is displayed.
      * @param {HTMLElement} indicatorEl - The element whose classes indicate the status.
-     * @param {boolean} isPresent - True if present, false otherwise.
-     * @param {string} [presentText='Present'] - Text shown if isPresent is true.
-     * @param {string} [notPresentText='Not Present'] - Text shown if isPresent is false.
+     * @param {boolean|string} status - True/False for present/not-present, or a status string ('status-present', 'status-not-present', 'status-warning').
+     * @param {string} [presentText='Present'] - Text shown if status is true or 'status-present'.
+     * @param {string} [notPresentText='Not Present'] - Text shown if status is false or 'status-not-present'.
      */
-    function updateTileStatus(textEl, indicatorEl, isPresent, presentText = 'Present', notPresentText = 'Not Present') {
+    function updateTileStatus(textEl, indicatorEl, status, presentText = 'Present', notPresentText = 'Not Present') {
+        let statusClass;
+        let text;
 
-        textEl.textContent = isPresent ? presentText : notPresentText;
-        indicatorEl.classList.remove('status-present', 'status-not-present', 'status-warning');
-        indicatorEl.classList.add(isPresent ? 'status-present' : 'status-not-present');
+        if (typeof status === 'string') {
+            statusClass = status;
+            text = status === 'status-present' ? presentText :
+                status === 'status-warning' ? 'Loading…' :
+                    notPresentText;
+        } else {
+            statusClass = status ? 'status-present' : 'status-not-present';
+            text = status ? presentText : notPresentText;
+        }
+
+        textEl.textContent = text;
+        setIndicatorStatus([indicatorEl], statusClass);
     }
 
 
     /**
-     * Updates the API status indicators for API key and URL presence,
+     * Updates the API status indicators for API key and URL presence
      * and enables/disables the corresponding summary option.
      *
      * @param {boolean} keyPresent - Whether an API key is available.
@@ -1836,21 +1834,18 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {boolean} modelPresent - Whether an API model is set.
      */
     function updateApiStatus(keyPresent, urlPresent, modelPresent) {
-
-        // Update text and indicator stati
         updateTileStatus(dom.apiStatus.keyText, dom.apiStatus.keyIndicator, keyPresent);
         updateTileStatus(dom.apiStatus.urlText, dom.apiStatus.urlIndicator, urlPresent);
         updateTileStatus(dom.apiStatus.modelText, dom.apiStatus.modelIndicator, modelPresent);
 
-        // Update group indicator
-        dom.apiStatus.group.classList.remove('status-present', 'status-not-present');
-        dom.apiStatus.group.classList.add(llmState.get('isApiLlmReady') ? 'status-present' : 'status-not-present');
+        const groupStatus = llmState.get('isApiLlmReady') ? 'status-present' : 'status-not-present';
+        setIndicatorStatus([dom.apiStatus.group], groupStatus);
     }
 
 
     /**
      * Updates the status indicators for a local LLM model and CUDA availability.
-     * Applies special handling if a model is present but CUDA is unavailable.
+     * Applies special handling if a model is present, but CUDA is unavailable.
      *
      * @param {boolean} modelPresent - Whether a local LLM model is available.
      * @param {boolean} modelReady - Whether the local LLM model is ready to use.
@@ -1858,21 +1853,33 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function updateLocalLlmStatus(modelPresent, modelReady, cudaAvailable) {
 
-        // Update text and indicator stati
+        // Transitional state: Indicators are handled by event listeners directly
+        if (['initializing', 'model_loading_from_cache', 'model_downloading'].includes(state.lastState)) {
+            dom.localLlmStatus.modelStatusText.textContent = 'Loading';
+            // Hide the old summary if a new one is being generated
+            console.log("The old summary will be hidden because state.lastState: ", state.lastState, " condition: ", state.lastState === 'success');
+            if (state.lastState === 'success') {
+                setTimeout(() => {
+                    dom.summaryContainer.classList.add('hidden');
+                }, 3000);
+            }
+            return;
+        }
+
         updateTileStatus(dom.localLlmStatus.modelNameText, dom.localLlmStatus.modelNameIndicator, modelPresent);
         updateTileStatus(dom.localLlmStatus.modelStatusText, dom.localLlmStatus.modelStatusIndicator, modelReady);
         updateTileStatus(dom.localLlmStatus.cudaText, dom.localLlmStatus.cudaIndicator, cudaAvailable, 'Available', 'Not Available');
 
-        // Update group indicator
-        dom.localLlmStatus.group.classList.remove('status-present', 'status-not-present', 'status-warning');
-
+        let groupStatus;
         if (llmState.get('isLocalLlmReady')) {
-            dom.localLlmStatus.group.classList.add('status-present');
+            groupStatus = 'status-present';
         } else if (modelPresent && modelReady && !cudaAvailable) {
-            dom.localLlmStatus.group.classList.add('status-flashing');
+            groupStatus = 'status-flashing';
         } else {
-            dom.localLlmStatus.group.classList.add('status-not-present');
+            groupStatus = 'status-not-present';
         }
+
+        setIndicatorStatus([dom.localLlmStatus.group], groupStatus);
     }
 
 
@@ -2036,6 +2043,20 @@ document.addEventListener('DOMContentLoaded', () => {
             button.classList.remove('success');
             button.disabled = false;
         }, 2000);
+    }
+
+
+    /**
+     * Hides the old summary from the user interface if the last state indicates success.
+     */
+    function hideOldSummary() {
+        // Hide the old summary if a new one is being generated
+        console.log("The old summary will be hidden because state.lastState: ", state.lastState, " condition: ", state.lastState === 'success');
+        if (state.lastState === 'success') {
+            setTimeout(() => {
+                dom.summaryContainer.classList.add('hidden');
+            }, 3000);
+        }
     }
 
 
