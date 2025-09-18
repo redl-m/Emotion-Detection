@@ -609,16 +609,8 @@ class LocalLLM:
         else:
             print("WARNING: CPU device detected. Quantization is disabled.")
 
-        if self.is_model_cached():
-            print(f"INFO: Loading '{self.model_name}' from cache.")
-            self.status_queue.put({
-                'type': 'status',
-                'payload': {'status': 'model_loading_from_cache',
-                            'message': f'Loading {self.model_name} from cache.'}
-            })
-        else:
-            print(f"INFO: Downloading '{self.model_name}'. This might take a while.")
-            self.download_with_progress()
+        # Unified loading call
+        self.load_local_llm_model()
 
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
@@ -645,56 +637,73 @@ class LocalLLM:
 
         return text.strip()
 
-    def is_model_cached(self):
+    def load_local_llm_model(self):
         """
-        Check if the model files are already available in the local Hugging Face cache.
-
-        :return: True if the model exists locally, False otherwise.
-        """
-        try:
-            # Try resolving config.json locally
-            hf_hub_download(
-                repo_id=self.model_name,
-                filename="config.json",
-                local_files_only=True
-            )
-            return True
-        except Exception:
-            return False
-
-    def download_with_progress(self):
-        """
-        Download model files, reporting progress through a consolidated event stream.
-
-        Sends an initial detailed 'download_progress_update' message for the UI.
+        Ensures a model is fully downloaded, resuming if partially cached,
+        and reports detailed progress through the status queue.
         """
         try:
             api = HfApi()
-            repo_tree = api.list_repo_tree(repo_id=self.model_name)
-            repo_files = [item for item in repo_tree if isinstance(item, RepoFile)]
+            # Get a list of all files in the repository
+            all_repo_files = [
+                item for item in api.list_repo_tree(repo_id=self.model_name)
+                if isinstance(item, RepoFile)
+            ]
 
-            # Initial compatibility message
-            files_payload = [{'path': f.path, 'size': f.size} for f in repo_files]
-            print(f"INFO: Starting download of {len(repo_files)} files.")
+            # Check which files are already present locally
+            files_to_download = []
+            for file_info in all_repo_files:
+                try:
+                    # Try to resolve each file from the local cache without downloading
+                    hf_hub_download(
+                        repo_id=self.model_name,
+                        filename=file_info.path,
+                        local_files_only=True  # Ensures only local files are checked
+                    )
+                except Exception:
+                    # If an exception is raised, the file is not present locally
+                    files_to_download.append(file_info)
+
+            # All files are already downloaded and cached:
+            if not files_to_download:
+                print(f"INFO: Model '{self.model_name}' is already cached.")
+                self.status_queue.put({
+                    'type': 'status',
+                    'payload': {'status': 'model_loading_from_cache',
+                                'message': f'Loading {self.model_name} from cache.'}
+                })
+                return  # Exit early
+
+            # Determine if this is a new download or a resumption
+            is_resuming = len(files_to_download) < len(all_repo_files)
+            initial_message = f"Resuming interrupted download of {self.model_name}." if is_resuming else f"Starting download of {self.model_name}."
+            print(f"INFO: {initial_message}")
+
+            # New download or resuming:
+            files_payload = [{'path': f.path, 'size': f.size} for f in all_repo_files]
             self.status_queue.put({
                 'type': 'download_progress_update',
                 'payload': {
                     'stage': 'info',
+                    'message': initial_message,
                     'model_name': self.model_name,
-                    'total_files': len(repo_files),
+                    'total_files': len(all_repo_files),
+                    'files_to_download': len(files_to_download),
                     'files': files_payload
                 }
             })
-            # print(f"Entry has been added to status queue successfully: {self.status_queue}")
 
-            # Loop through each file
-            for i, file_info in enumerate(repo_files):
-                # Announce the start of a specific file
+            # Loop through and download only the missing files
+            for i, file_info in enumerate(files_to_download):
+
+                original_index = all_repo_files.index(file_info)
+
                 self.status_queue.put({
                     'type': 'download_progress_update',
                     'payload': {
                         'stage': 'start_file',
-                        'current_file_index': i
+                        'current_file_index': original_index,
+                        'is_resuming': is_resuming
                     }
                 })
 
@@ -702,14 +711,13 @@ class LocalLLM:
                     hf_hub_download(
                         repo_id=self.model_name,
                         filename=file_info.path,
-                        resume_download=True,
                     )
 
-                # Announce the file is complete
                 self.status_queue.put({
                     'type': 'download_progress_update',
                     'payload': {
-                        'stage': 'complete_file'
+                        'stage': 'complete_file',
+                        'completed_file_index': original_index
                     }
                 })
 
@@ -724,11 +732,12 @@ class LocalLLM:
 
         except Exception as e:
             # Restore stdout
-            if hasattr(sys.stdout, 'original_stdout'):
-                sys.stdout = sys.stdout.original_stdout
+            if isinstance(sys.stdout, TqdmProgressCapturer):
+                sys.stdout = sys.stdout.original_stream
+            if isinstance(sys.stderr, TqdmProgressCapturer):
+                sys.stderr = sys.stderr.original_stream
 
             print(f"ERROR during model download: {e}")
-            # Send a structured error message
             self.status_queue.put({
                 'type': 'download_progress_update',
                 'payload': {

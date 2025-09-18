@@ -478,6 +478,21 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
 
+
+        /**
+         * Marks all segments up to the current one as completed for a continued download.
+         * @param currentFileIndex The index up to which segments are marked as complete.
+         */
+        markSegmentsAsComplete(currentFileIndex) {
+            for (let i = 0; i < currentFileIndex; i++) {
+                const completedSegment = this.elements.overallProgress.querySelector(`[data-file-index="${i}"]`);
+                if (completedSegment) {
+                    completedSegment.classList.add('completed');
+                }
+            }
+        },
+
+
         /**
          * Finalizes the UI when all downloads are complete.
          * @param {string} message - The message to display at the end.
@@ -843,6 +858,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 case 'start_file':
                     // A new file is beginning
+                    if (data.is_resuming) {
+                        // Mark all already downloaded files as complete in case the download is continued
+                        progressBarManager.markSegmentsAsComplete(data.current_file_index);
+                    }
                     progressBarManager.startFile(data.current_file_index);
                     break;
 
