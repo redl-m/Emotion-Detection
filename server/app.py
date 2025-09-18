@@ -346,6 +346,12 @@ def create_app():
             if not new_model_name:
                 new_model_name = DEFAULT_LOCAL_LLM_MODEL_NAME  # This currently prevents clearing the input
 
+            # If the same model is already loaded and ready, don't start the loading process again
+            if new_model_name == CURRENT_LOCAL_LLM_MODEL_NAME and APP_STATE["local_model_ready"] is True:
+                print(f"INFO: Local LLM model {new_model_name} is already present. Skipping.")
+                emit_status_update()
+                return
+
             APP_STATE["local_model_loading"] = True
             APP_STATE["local_model_ready"] = False
             emit_status_update()
