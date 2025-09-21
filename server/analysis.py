@@ -526,14 +526,14 @@ class LocalLLM:
                     # Error in second attempt
                     print(f"ERROR: Failed to load local model '{model_name}' on retry. Error: {retry_e}")
                     self.status_queue.put({'type': 'local_llm_model_ready', 'payload': False})
-                    self.status_queue.put({'type': 'status', 'payload': {'status': 'model_error',
+                    self.status_queue.put({'type': 'status', 'payload': {'status': 'error',
                                                                          'message': f'Error loading {self.model_name}.'}})
                     return  # Exit __init__
             else:
                 # Different error from first try
                 print(f"ERROR: Failed to load local model '{model_name}'. Error: {e}")
                 self.status_queue.put({'type': 'local_llm_model_ready', 'payload': False})
-                self.status_queue.put({'type': 'status', 'payload': {'status': 'model_error',
+                self.status_queue.put({'type': 'status', 'payload': {'status': 'error',
                                                                      'message': f'Error loading {self.model_name}.'}})
                 return  # Exit __init__
 
@@ -739,10 +739,10 @@ class LocalLLM:
 
             print(f"ERROR during model download: {e}")
             self.status_queue.put({
-                'type': 'download_progress_update',
+                'type': 'status',
                 'payload': {
-                    'stage': 'error',
-                    'message': f'Download failed: {str(e)}'
+                    'status': 'error',
+                    'message': f'Download failed: {str(e)}.'
                 }
             })
 

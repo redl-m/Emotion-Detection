@@ -886,7 +886,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'error':
                     // An error occurred
                     progressBarManager.handleError(data.message);
-                    s
                     state.lastState = 'error';
                     break;
 
