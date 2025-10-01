@@ -51,7 +51,7 @@ Status summaries are located in the top right corner and show the availability o
 The default values for the local LLM, the API URL, the API key and the API model can be set under the global settings configuration located in extensions.py.  
  To change the default local LLM model adjust the parameter DEFAULT_LOCAL_LLM_MODEL_NAME,  
  to change the default API URL adjust the parameter DEFAULT_LLM_API_URL,
- to change the default API model adjust the parameter DEFAULT_LLM_API_MODEL and  
+ to change the default API model adjust the parameter DEFAULT_LLM_API_MODEL and 
  to set a default API key adjust LLM_API_KEY.  
  See [huggingface.co/models](https://huggingface.co/models) to browse available local LLM models.
 
