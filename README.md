@@ -32,14 +32,6 @@ and run:
 python app.py
 ```
 
-or run:
-
-```bash
-python .\server\app.py
-```
-
-directly.
-
 Once the server is running, open your browser and navigate to `http://localhost:5000/`.
 
 ## Program Usage
@@ -65,10 +57,12 @@ The default values for the local LLM, the API URL and API key can be set under t
  
 ### Setting up the local LLM
 
-The default local LLM used for this project is tiiuae/falcon-7b-instruct. It was chosen for its availablility and okay ratio of model size and processing time. On first use, huggingface will download the model if not present.  
+The default local LLM used for this project is tiiuae/falcon-7b-instruct. It was chosen for its availability and okay ratio of model size and processing time. On first use, huggingface will download the model if not present.  
 Note that using tiiuae/falcon-7b-instruct it can take up to several minutes to generate a summary and will be extremely memory expensive.  
-google/gemma-3-1b-it is a highly recommendable LLM model, it comes with a much shorter (~ 10%) computation time than tiiuae/falcon-7b-instruct and similarly good performance, but needs a huggingface account to use.  
-On program start, the local LLM model can be set. Previous LLM models will be stored using the browser's history.
+It is important to mention that the local LLM's behavior is heavily dependent on the presence of CUDA cores, which are only available on NVIDIA GPUs.  
+google/gemma-3-1b-it is a highly recommendable LLM model, it comes with a much shorter (~ 10%) computation time than tiiuae/falcon-7b-instruct and only slightly degraded performance, but needs a huggingface account to use.  
+On program start, the local LLM model can be set. Previous LLM models will be stored using the browser's history.  
+A list of available local LLM models can be found at [huggingface.co/models](https://huggingface.co/models) or by pressing the "Browse Models" button. This button is located in the top right corner of the local LLM model settings tile on the right side of the user interface.
 
 ### Setting up the remote LLM
 
