@@ -44,13 +44,14 @@ You can change the summary method before clicking the "Stop & Summarize" button 
 
 ### Status Summaries
 
-Status summaries are located at the top right corner and show the avilability of a local LLM model, CUDA cores, an API URL and API key.
+Status summaries are located in the top right corner and show the availability of CUDA cores, the local LLM model, the API URL, API key and API model.
 
 ### Changing default values
 
-The default values for the local LLM, the API URL and API key can be set under the global settings configuration located at the top of app.py.  
+The default values for the local LLM, the API URL, the API key and the API model can be set under the global settings configuration located in extensions.py.  
  To change the default local LLM model adjust the parameter DEFAULT_LOCAL_LLM_MODEL_NAME,  
- to change the default API URL adjust the parameter DEFAULT_LLM_API_URL and  
+ to change the default API URL adjust the parameter DEFAULT_LLM_API_URL,
+ to change the default API model adjust the parameter DEFAULT_LLM_API_MODEL and  
  to set a default API key adjust LLM_API_KEY.  
  See [huggingface.co/models](https://huggingface.co/models) to browse available local LLM models.
 
@@ -66,8 +67,8 @@ A list of available local LLM models can be found at [huggingface.co/models](htt
 
 ### Setting up the remote LLM
 
-The default remote LLM API is OpenAI's API.  
-On program start, the remote API URL can be set. Previous API URLs will be stored using the browser's history.  
+The default remote LLM API is OpenAI's API and the default remote API model is gpt-3.5-turbo.  
+On program start, the remote API URL and API model can be set. Previous API URLs nad API models will be stored using the browser's history.  
 The API key is not set by default, but can be set on program start. Previous API keys will not be stored.
 
 
