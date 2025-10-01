@@ -60,7 +60,7 @@ The default values for the local LLM, the API URL, the API key and the API model
 
 The default local LLM used for this project is tiiuae/falcon-7b-instruct. It was chosen for its availability and okay ratio of model size and processing time. On first use, huggingface will download the model if not present.  
 Note that using tiiuae/falcon-7b-instruct it can take up to several minutes to generate a summary and will be extremely memory expensive.  
-It is important to mention that the local LLM's behavior is heavily dependent on the presence of CUDA cores, which are only available on NVIDIA GPUs.  
+It is important to mention that the local LLM's behavior is heavily dependent on the presence of CUDA cores, which are only available on NVIDIA GPUs. With CUDA cores available, the local LLM's generation time will be reduced to a few seconds.  
 google/gemma-3-1b-it is a highly recommendable LLM model, it comes with a much shorter (~ 10%) computation time than tiiuae/falcon-7b-instruct and only slightly degraded performance, but needs a huggingface account to use.  
 On program start, the local LLM model can be set. Previous LLM models will be stored using the browser's history.  
 A list of available local LLM models can be found at [huggingface.co/models](https://huggingface.co/models) or by pressing the "Browse Models" button. This button is located in the top right corner of the local LLM model settings tile on the right side of the user interface.
@@ -68,7 +68,7 @@ A list of available local LLM models can be found at [huggingface.co/models](htt
 ### Setting up the remote LLM
 
 The default remote LLM API is OpenAI's API and the default remote API model is gpt-3.5-turbo.  
-On program start, the remote API URL and API model can be set. Previous API URLs nad API models will be stored using the browser's history.  
+On program start, the remote API URL and API model can be set. Previous API URLs and API models will be stored using the browser's history.  
 The API key is not set by default, but can be set on program start. Previous API keys will not be stored.
 
 
